@@ -1,0 +1,535 @@
+---
+title: "Orthogroup_Parsing"
+author: "Zachary Kileeg"
+date: "7/21/2021"
+output: html_document
+---
+
+
+```{r}
+
+library(stringr)
+library(dplyr)
+
+
+#Set species key for parsing
+#species_key = unique(str_extract(Orthogroup_Table[5:length(Orthogroup_Table[,1]),1], "^*([^_]*)"))
+species_key_2 = read.delim("D:/Sequence_Data/Phylogenetics_Project/Input_FASTAs/Mar30_2021_Phytozome_Primary_Transcripts/Phytozome_5LetterCode_Key.txt", sep="\t", header=FALSE)
+
+
+#Run either of these inputs. Don't need multiple. 
+
+#Get FastOrtho output
+Orthogroup_Table = t(read.delim("D:/Sequence_Data/Phylogenetics_Project/FastOrtho/August_2021/Working_Directory/113Species_KinaseOnly.end", sep=" ", header=FALSE))
+
+
+#Get swiftortho output
+Orthogroup_Table = t(read.delim("D:/Sequence_Data/Phylogenetics_Project/SwiftOrtho/Step3/MCL_Classic_Output.txt", sep="\t", header=FALSE))
+Orthogroup_Table = rbind(paste("Orthogroup", c(1:ncol(Orthogroup_Table))), Orthogroup_Table)
+
+
+
+#Set output table
+orthogroup_count = matrix(nrow=ncol(Orthogroup_Table), ncol=nrow(species_key_2)+1)
+rownames(orthogroup_count) = Orthogroup_Table[1,]
+colnames(orthogroup_count) = c(species_key_2$V2, "Total")
+
+
+
+
+
+#Loop oVer Values in original table and count the number of sequences per species in each orthogroup
+for (i in 1:nrow(orthogroup_count)){
+  
+  for (j in 1:ncol(orthogroup_count)){
+    
+    orthogroup_count[i,j] = length(grep(species_key_2[j,2], Orthogroup_Table[,i]))
+    
+  }
+  
+  orthogroup_count[i, ncol(orthogroup_count)] = sum(orthogroup_count[i,1:ncol(orthogroup_count)-1])
+}
+
+
+#write fast ortho output
+write.csV(orthogroup_count, "D:/Sequence_Data/Phylogenetics_Project/FastOrtho/August_2021/2021_Aug3_102Species_FastOrtho_LRRI.1_Count.csV", quote=FALSE, col.names=FALSE)
+
+#Write swift ortho output
+write.csV(orthogroup_count, "D:/Sequence_Data/Phylogenetics_Project/SwiftOrtho/Step3/2021_July22_102Species_LRRI.1_Count.csV", quote=FALSE, col.names=FALSE)
+
+```
+
+
+#split orthogroups and extract protein sequences not found in Col-0
+```{r}
+
+library(dplyr)
+library(stringr)
+library(phylotools)
+
+files = list.files("C:/Users/kileegza/Documents/Orthofinder/Orthofinder_output/Jan23_2021_26_Ecotype_Pkinases/Results_Jan23/Phylogenetic_Hierarchical_Orthogroups", full.names = TRUE)
+
+ogcount_in = data.frame()
+for (j in 1:length(files)){
+  ogplaceholder= read.table(files[j], sep="\t", quote="", header=TRUE)
+  ogcount_in = rbind(ogcount_in, ogplaceholder)
+}
+
+ogcount=as.data.frame(cbind(ogcount_in$HOG, ogcount_in$OG, ogcount_in$Sha_pkinases_for_Filtering,ogcount_in$An_pkinases_for_Filtering, ogcount_in$C24_pkinases_for_Filtering, ogcount_in$Col_pkinases_for_Filtering, ogcount_in$CVi_pkinases_for_Filtering, ogcount_in$Eri_pkinases_for_Filtering, ogcount_in$Kyo_pkinases_for_Filtering, ogcount_in$Ler_pkinases_for_Filtering, ogcount_in$Nd1_pkinases_for_Filtering))
+
+og_nocol = ogcount %>% filter(V6 == "")
+
+ogs_morethancol = ogcount %>% filter((str_count(V3,",") > str_count(V6,",")) | (str_count(V4,",") > str_count(V6,",")) | (str_count(V5,",") > str_count(V6,",")) | (str_count(V7,",") > str_count(V6,",")) | (str_count(V8,",") > str_count(V6,",")) | (str_count(V9,",") > str_count(V6,",")) | (str_count(V10,",") > str_count(V6,",")))
+
+og_newprots = unique(rbind(og_nocol,ogs_morethancol))
+og_forcounts = og_newprots[,3:10]
+
+og_forcounts = sapply(og_forcounts, as.character)
+og_forcounts[is.na(og_forcounts)] = " "
+
+output_matrix = matrix(nrow=nrow(og_newprots),ncol=1)
+for (i in 1:nrow(og_forcounts)){
+  
+  output_matrix[i,1]= og_forcounts[i,which.max(nchar(og_forcounts[i,1:8]))]
+  
+}
+
+output_matrix=cbind(og_newprots$V2, og_newprots$V6, output_matrix)
+
+write.csv(output_matrix, "D:/Analysis_Output/Orthogroup_Assignment/New_Sequences/kinase_not_in_Col.csv")
+#which.max(nchar(og_newprots[2,1:11]))
+
+
+```
+
+
+
+###Parse gethomologues-est
+
+```{r}
+
+input_clusters = read.table("D:/Programs/GET_HOMOLOGUES/An-1_alltaxa_algOMCL_e0_.cluster_list", sep="\n")
+
+input_clusters$V1 = gsub(": ", "",input_clusters$V1)
+
+header_lines = grep("cluster", input_clusters$V1)
+
+#holding_list = vector(mode="list", length=length(header_lines))
+holding_dataframe = data.frame()
+
+for (i in 1:(length(header_lines)-1)){
+  
+ placeholder = as.data.frame(input_clusters[header_lines[i]:(header_lines[i+1]-1),1])
+ 
+ if (nrow(placeholder) < 5) {print("True")}
+ 
+ An1Count = length(grep("^An-1", placeholder[,1]))
+ AraportCount = length(grep("^Araport", placeholder[,1]))
+ C24Count = length(grep("^C24", placeholder[,1]))
+ CviCount = length(grep("^Cvi", placeholder[,1]))
+ EriCount = length(grep("^Eri", placeholder[,1]))
+ KyoCount = length(grep("^Kyo", placeholder[,1]))
+ LerCount = length(grep("^Ler", placeholder[,1]))
+ Nd1Count = length(grep("^Nd1", placeholder[,1]))
+ ShaCount = length(grep("^Sha", placeholder[,1]))
+ 
+ max_noncol = max(An1Count, C24Count, CviCount, EriCount, KyoCount, LerCount, Nd1Count, ShaCount)
+ 
+ if (max_noncol > AraportCount){
+
+ if ((nrow(placeholder) < 10) | (nrow(placeholder) > 10)){
+   #print("TRUE")
+   holding_dataframe = rbind(holding_dataframe,placeholder)
+ }else if (length(unique(placeholder[,1])) < 10) {
+   #print("elseif")
+   test_elseif = placeholder
+   holding_dataframe = rbind(holding_dataframe,placeholder)
+  }
+ }
+}
+
+
+  
+  
+placeholder = as.data.frame(input_clusters[header_lines[i+1]:nrow(input_clusters),1])
+
+ if ((nrow(placeholder) < 10) | (nrow(placeholder) > 10)){
+   #print("TRUE")
+   holding_dataframe = rbind(holding_dataframe,placeholder)
+ }else if (length(unique(placeholder[,1])) < 10) {
+   
+   test_elseif = placeholder
+   holding_dataframe = rbind(holding_dataframe,placeholder)
+ }
+
+  
+
+  
+
+#holding_list[sapply(holding_list, is.null)] = NULL
+
+```
+
+
+###This chunk takes text files containing orthogroup information and filters them as necessary - usually setup for blast
+```{r}
+library(dplyr)
+library(phylotools)
+
+
+#get gene/proteinsequences into memory
+input_gene_sequences = read.fasta("D:/Sequence_Data/Ecotype_DataFiles/Ecotype Variant Data/Combined/2021_Nov4_9Ecotype_GeneSequences_Combined.fasta")
+
+input_gene_sequences$seq.name = gsub(" .*$","",input_gene_sequences$seq.name) #fix formatting to include only locus tag name without additional information
+input_gene_sequences$seq.name = gsub("\\.[0-9]","",input_gene_sequences$seq.name)
+input_gene_sequences$seq.text = toupper(input_gene_sequences$seq.text)
+
+
+
+
+#Read text output with counts in them then filter for wanted rows/columns
+OG_Inference = read.delim("D:/Analysis_Output/Orthogroup_Assignment/N0.tsv_Count.txt", sep=" ", header=FALSE)
+OG_Inference = OG_Inference[,-(13)]
+#OG_Inference = OG_Inference[,-(14:15)]
+OG_Inference = OG_Inference[-(1:2),]
+colnames(OG_Inference) = c("HOG","OG","GeneNode","An1","Col","C24","Cvi","Eri","Kyo", "Ler", "Nd1", "Sha")
+OG_Inference$An1 = as.numeric(OG_Inference$An1)
+
+
+#Read text output with counts in them then filter for wanted rows/columns
+OG_Inference = read.delim("D:/Analysis_Output/Orthogroup_Assignment/N0.tsv_26Ecotype_Count.txt", sep=" ", header=FALSE)
+OG_Inference = OG_Inference[,-(13)]
+#OG_Inference = OG_Inference[,-(14:15)]
+OG_Inference = OG_Inference[-(1:2),]
+colnames(OG_Inference) = c("HOG","OG","GeneNode","An1","Col","C24","Cvi","Eri","Kyo", "Ler", "Nd1", "Sha")
+OG_Inference$An1 = as.numeric(OG_Inference$An1)
+
+
+
+
+#fix formatting for usage later and add "max" column and "max ecotype" columns, indicating ecotype name and number of genes in that ecotype for highest value
+OG_Inference$Max = as.numeric(apply(OG_Inference[,4:12],1, max))
+OG_Inference$Max_Ecotype = colnames(OG_Inference[,apply(OG_Inference[,4:12],1,which.max)+3])
+OG_Inference$Max_Ecotype = gsub("\\..*", "", OG_Inference$Max_Ecotype, perl=TRUE)
+
+#Filter for new genes not found in columbia (col)
+New_OGs = OG_Inference %>% filter(Col == 0)
+#New_OGs$Max = as.numeric(apply(New_OGs[,4:12],1,max))
+#New_OGs$Max_Ecotype = colnames(New_OGs[,apply(New_OGs[,4:12],1,which.max)+3])
+#New_OGs$Max_Ecotype = gsub("\\..*", "", New_OGs$Max_Ecotype, perl=TRUE)
+
+#Filter for copy number variants more than col - i.e. col has at least 1 gene, but at least one ecotype has more than this
+CNV_OGs = OG_Inference %>% filter((Col >=1) & (Max > Col))
+ColMore_OGs = OG_Inference %>% filter(Col >= Max)
+
+#get sequence names for each OG
+OG_Text_In = read.delim("D:/Analysis_Output/Orthogroup_Assignment/9EcotypeWholeProteomes/OrthoFinder/Results_Oct07_1/Phylogenetic_Hierarchical_Orthogroups/N0.tsv", sep="\t", header=FALSE)
+colnames(OG_Text_In) = c("HOG","OG","GeneNode","An1","Col","C24","Cvi","Eri","Kyo","Ler","Nd1","Sha")
+
+#Filter OG sequence names to match CNVs
+OG_Text_Filtered = OG_Text_In %>% filter(HOG %in% CNV_OGs$HOG)
+
+#Filter OG sequence names to match New genes
+OG_Text_NewGeneFiltered = OG_Text_In %>% filter(HOG %in% New_OGs$HOG)
+
+
+#Loops takes complex OGs and outputs the increased CNV ecotype sequence names and the columbia sequence names within that cluster
+CNVs_vec = vector(mode = "character")
+col_vec = vector(mode = "character")
+for (i in 1:nrow(CNV_OGs)){
+  
+  CNVs_vec = c(CNVs_vec, OG_Text_Filtered[i,CNV_OGs[i,14]])
+  CNVs_vec = gsub("\\.[0-9]","",CNVs_vec)
+  
+  col_vec = c(col_vec, OG_Text_Filtered[i,5])
+  col_vec = gsub("\\.[0-9]","",col_vec)
+  
+}
+
+CNVs_vec = gsub(" ", "", CNVs_vec)
+CNVs_vec = strsplit(CNVs_vec, split=",")  #Split to format 
+
+col_vec = gsub(" ", "", col_vec)
+col_vec = strsplit(col_vec, split=",")
+
+#CNVs_vec = unlist(strsplit(CNVs_vec, split=","))
+#CNVs_vec = gsub(" ", "", CNVs_vec)
+
+
+
+
+
+
+#this is bad but meh it works. Should have made this a function but I'm lazy. 
+#Finds new genes. i.e. ones where ecotypes have a gene in these OGs, but col has no genes in that OG
+New_gene_vec = vector(mode = "character")
+for (i in 1:nrow(CNV_OGs)){
+  
+  New_gene_vec = c(New_gene_vec, OG_Text_NewGeneFiltered[i,New_OGs[i,14]])
+  
+}
+
+New_gene_vec = unlist(strsplit(New_gene_vec, split=","))
+New_gene_vec = gsub(" ", "", New_gene_vec)
+
+
+
+#Loop over list generated previously and output sequencs from those orthogroups only to be used for blast
+for (j in 1:length(CNVs_vec)){
+  
+  current_HOG = CNV_OGs[j,1]
+  
+  output_OG_cnvs = input_gene_sequences %>% filter(seq.name %in% CNVs_vec[[j]])
+  output_OG_cnvs$seq.name = paste(">", output_OG_cnvs$seq.name, sep="")
+  write.table(output_OG_cnvs, paste("D:/Analysis_Output/Blast/Input_OGs_Genes/Ecotypes/", current_HOG, "_Ecotypes_HOG_Sequences.fasta", sep=""),col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+  output_col_cnvs = input_gene_sequences %>% filter(seq.name %in% col_vec[[j]])
+  output_col_cnvs$seq.name = paste(">", output_col_cnvs$seq.name, sep="")
+  write.table(output_col_cnvs, paste("D:/Analysis_Output/Blast/Input_OGs_Genes/Col/", current_HOG, "_Col_HOG_Sequences.fasta", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+  #print(j)
+}
+
+
+#Filtered gene sequences for newgenes and CNVs to use later. 
+filtered_genes_newgenes = input_gene_sequences %>% filter(seq.name %in% New_gene_vec)
+filtered_genes_newgenes$seq.name = paste(">", filtered_genes_newgenes$seq.name, sep="")
+
+
+filtered_genes_CNVs = input_gene_sequences %>% filter(seq.name %in% unlist(CNVs_vec))
+filtered_genes_CNVs$seq.name = paste(">", filtered_genes_CNVs$seq.name, sep="")
+
+
+
+
+
+```
+
+###26 ECOTYPE This chunk takes text files containing orthogroup information and filters them as necessary - usually setup for blast. Why are there two chunks essentially the same? because I didn't spend the time to make the code one size fits all. yeah it's not great code...
+```{r}
+library(dplyr)
+library(phylotools)
+
+
+#get gene/proteinsequences into memory
+input_gene_sequences = read.fasta("D:/Sequence_Data/Ecotype_DataFiles/Ecotype Variant Data/Combined/2021_Nov4_9Ecotype_GeneSequences_Combined.fasta")
+
+input_gene_sequences$seq.name = gsub(" .*$","",input_gene_sequences$seq.name) #fix formatting to include only locus tag name without additional information
+input_gene_sequences$seq.name = gsub("\\.[0-9]","",input_gene_sequences$seq.name)
+input_gene_sequences$seq.text = toupper(input_gene_sequences$seq.text)
+
+
+
+
+
+
+#Read text output with counts in them then filter for wanted rows/columns
+OG_Inference = read.delim("D:/Analysis_Output/Orthogroup_Assignment/N0.tsv_26Ecotype_Count.txt", sep=" ", header=FALSE)
+OG_Inference = OG_Inference[,-(13)]
+#OG_Inference = OG_Inference[,-(14:15)]
+OG_Inference = OG_Inference[-(1:2),]
+colnames(OG_Inference) = c("HOG","OG","GeneNode","An1","Col","C24","Cvi","Eri","Kyo", "Ler", "Nd1", "Sha")
+OG_Inference$An1 = as.numeric(OG_Inference$An1)
+
+
+
+
+#fix formatting for usage later and add "max" column and "max ecotype" columns, indicating ecotype name and number of genes in that ecotype for highest value
+OG_Inference$Max = as.numeric(apply(OG_Inference[,4:12],1, max))
+OG_Inference$Max_Ecotype = colnames(OG_Inference[,apply(OG_Inference[,4:12],1,which.max)+3])
+OG_Inference$Max_Ecotype = gsub("\\..*", "", OG_Inference$Max_Ecotype, perl=TRUE)
+
+#Filter for new genes not found in columbia (col)
+New_OGs = OG_Inference %>% filter(Col == 0)
+#New_OGs$Max = as.numeric(apply(New_OGs[,4:12],1,max))
+#New_OGs$Max_Ecotype = colnames(New_OGs[,apply(New_OGs[,4:12],1,which.max)+3])
+#New_OGs$Max_Ecotype = gsub("\\..*", "", New_OGs$Max_Ecotype, perl=TRUE)
+
+#Filter for copy number variants more than col - i.e. col has at least 1 gene, but at least one ecotype has more than this
+CNV_OGs = OG_Inference %>% filter((Col >=1) & (Max > Col))
+ColMore_OGs = OG_Inference %>% filter(Col >= Max)
+
+#get sequence names for each OG
+OG_Text_In = read.delim("D:/Analysis_Output/Orthogroup_Assignment/9EcotypeWholeProteomes/OrthoFinder/Results_Oct07_1/Phylogenetic_Hierarchical_Orthogroups/N0.tsv", sep="\t", header=FALSE)
+colnames(OG_Text_In) = c("HOG","OG","GeneNode","An1","Col","C24","Cvi","Eri","Kyo","Ler","Nd1","Sha")
+
+#Filter OG sequence names to match CNVs
+OG_Text_Filtered = OG_Text_In %>% filter(HOG %in% CNV_OGs$HOG)
+
+#Filter OG sequence names to match New genes
+OG_Text_NewGeneFiltered = OG_Text_In %>% filter(HOG %in% New_OGs$HOG)
+
+
+#Loops takes complex OGs and outputs the increased CNV ecotype sequence names and the columbia sequence names within that cluster
+CNVs_vec = vector(mode = "character")
+col_vec = vector(mode = "character")
+for (i in 1:nrow(CNV_OGs)){
+  
+  CNVs_vec = c(CNVs_vec, OG_Text_Filtered[i,CNV_OGs[i,14]])
+  CNVs_vec = gsub("\\.[0-9]","",CNVs_vec)
+  
+  col_vec = c(col_vec, OG_Text_Filtered[i,5])
+  col_vec = gsub("\\.[0-9]","",col_vec)
+  
+}
+
+CNVs_vec = gsub(" ", "", CNVs_vec)
+CNVs_vec = strsplit(CNVs_vec, split=",")  #Split to format 
+
+col_vec = gsub(" ", "", col_vec)
+col_vec = strsplit(col_vec, split=",")
+
+#CNVs_vec = unlist(strsplit(CNVs_vec, split=","))
+#CNVs_vec = gsub(" ", "", CNVs_vec)
+
+
+
+
+
+
+#this is bad but meh it works. Should have made this a function but I'm lazy. 
+#Finds new genes. i.e. ones where ecotypes have a gene in these OGs, but col has no genes in that OG
+New_gene_vec = vector(mode = "character")
+for (i in 1:nrow(CNV_OGs)){
+  
+  New_gene_vec = c(New_gene_vec, OG_Text_NewGeneFiltered[i,New_OGs[i,14]])
+  
+}
+
+New_gene_vec = unlist(strsplit(New_gene_vec, split=","))
+New_gene_vec = gsub(" ", "", New_gene_vec)
+
+
+
+#Loop over list generated previously and output sequencs from those orthogroups only to be used for blast
+for (j in 1:length(CNVs_vec)){
+  
+  current_HOG = CNV_OGs[j,1]
+  
+  output_OG_cnvs = input_gene_sequences %>% filter(seq.name %in% CNVs_vec[[j]])
+  output_OG_cnvs$seq.name = paste(">", output_OG_cnvs$seq.name, sep="")
+  write.table(output_OG_cnvs, paste("D:/Analysis_Output/Blast/Input_OGs_Genes/Ecotypes/", current_HOG, "_Ecotypes_HOG_Sequences.fasta", sep=""),col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+  output_col_cnvs = input_gene_sequences %>% filter(seq.name %in% col_vec[[j]])
+  output_col_cnvs$seq.name = paste(">", output_col_cnvs$seq.name, sep="")
+  write.table(output_col_cnvs, paste("D:/Analysis_Output/Blast/Input_OGs_Genes/Col/", current_HOG, "_Col_HOG_Sequences.fasta", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+  #print(j)
+}
+
+
+#Filtered gene sequences for newgenes and CNVs to use later. 
+filtered_genes_newgenes = input_gene_sequences %>% filter(seq.name %in% New_gene_vec)
+filtered_genes_newgenes$seq.name = paste(">", filtered_genes_newgenes$seq.name, sep="")
+
+
+filtered_genes_CNVs = input_gene_sequences %>% filter(seq.name %in% unlist(CNVs_vec))
+filtered_genes_CNVs$seq.name = paste(">", filtered_genes_CNVs$seq.name, sep="")
+
+
+
+
+
+```
+
+
+##Take as input blast output and parse out top results
+```{r}
+
+library(dplyr)
+library(phylotools)
+
+output_blast_files = list.files("D:/Analysis_Output/Blast/Output", full.names=TRUE)
+
+represented_CNVs = vector(mode="character")
+complex_OGs = matrix(ncol=2)
+counter=0
+for (i in 1:length(output_blast_files)){
+  
+  if (file.info(output_blast_files[i])$size > 0){
+    
+    input_blast_csv = read.csv(output_blast_files[i], header=FALSE)
+    
+    unique_col_input = unique(input_blast_csv$V1)
+    
+    if (length(unique_col_input) > 1){
+      
+      complex_OGs = rbind(complex_OGs, c(output_blast_files[i],paste(unique_col_input, collapse=",")))
+      #complex_OGs[counter,1] = output_blast_files[i]
+      #complex_OGs[counter,2] = paste(unique_col_input, collapse=" ", sep=",")
+      #counter = counter+1
+    } else {
+      
+      represented_CNVs = c(represented_CNVs, unique(input_blast_csv[1,2]))
+      
+    }
+    
+  }
+}
+
+
+write.csv(complex_OGs, "D:/Analysis_Output/Blast/9Ecotype_ComplexOGs.csv")
+#Manually added from complex OGs
+man_add_complexOG = 
+#remove NAs
+#novel_CNVs = novel_CNVs[!(is.na(novel_CNVs))]
+novel_CNVs = setdiff(unlist(CNVs_vec), represented_CNVs)
+
+genes_for_reference_additions = c(novel_CNVs, New_gene_vec)
+
+genes_to_add = input_gene_sequences %>% filter(seq.name %in% genes_for_reference_additions)
+genes_to_add$seq.name = paste(">", genes_to_add$seq.name, sep="")
+
+write.table(genes_to_add, "D:/Sequence_Data/Ecotype_DataFiles/Ecotype Variant Data/Combined/Genomes/2021_Nov17_9Ecotype_Non_Col_Genes.fasta", col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+
+test = unique(genes_for_reference_additions)
+
+#test = grep(paste(CNV_OGs$Max_Ecotype,".*"), OG_Text_In,)
+
+write.table(filtered_genes_newgenes, "D:/Sequence_Data/Ecotype_DataFiles/Ecotype Variant Data/Combined/Genomes/2021_Nov4_9Ecotype_NewGenes.fasta", col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+
+write.table(filtered_genes_CNVs, "D:/Sequence_Data/Ecotype_DataFiles/Ecotype Variant Data/Combined/Genomes/2021_Nov4_9Ecotype_NewCNVs.fasta", col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+
+#write.csv(CNV_OGs, "D:/Analysis_Output/Orthogroup_Assignment/9EcotypeWholeProteomes/OrthoFinder/Results_Oct07_1/CNV_OGs_9Ecotype.csv", row.names=FALSE)
+
+
+```
+###chunk takes as input a bunch of text files with gene names for each OG and outputs them as a presence/absence matrix 
+```{r} 
+
+library(dplyr)
+library(stringr)
+
+#get list of ecotypes in from file
+ecotype_names = read.csv("D:/Analysis_Output/Orthogroup_Assignment/Sep2024/Kinases/Orthofinder_out/Split_NOGs_blastrefinement_names/RLK_Ecotype_list.csv", header=FALSE)
+dir="D:/Analysis_Output/Orthogroup_Assignment/Sep2024/NLRs/Dec_results/Orthofinder_out/"
+
+
+#get list of text files, then put the names into a variable so we have both file names and OG names
+OG_text_files = list.files(dir, pattern="*.txt")
+OG_names = gsub("\\.txt","",OG_text_files)
+
+pres_abs_matrix = matrix(nrow=length(OG_names), ncol=(nrow(ecotype_names)+1))
+
+pres_abs_matrix[,1] = OG_names
+colnames(pres_abs_matrix) = c("OG", ecotype_names$V1)
+
+for (i in 1:length(OG_text_files)){
+OG_in = read.table(paste(dir,OG_text_files[i], sep=""))
+
+for (k in 2:ncol(pres_abs_matrix)){
+  
+  matched = grep(colnames(pres_abs_matrix)[k], OG_in)
+  
+  if (length(matched) == 0 ){
+    matched = 0
+  }
+  
+  pres_abs_matrix[i,k] = matched
+}
+
+}
+
+write.csv(pres_abs_matrix, paste(dir, "NLRs_HOGs_BlastSplit.csv", sep=""), row.names=FALSE)
+
+```

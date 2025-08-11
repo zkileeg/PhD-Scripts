@@ -1,0 +1,186 @@
+
+Library used 
+
+```{r}
+require("readxl") #used to read in excel files
+require("tidyr") #used to tidy data 
+require("beeswarm") # used to overlay scatter point on plot 
+require("dplyr") # provides easy grammar for data manipulation
+require("DescTools") # used for basic stats function 
+require("ggplot2")
+```
+
+Load the data in
+
+```{r}
+input_file = read.csv("C:/Users/kileegza/Documents/Growth_Assay/2023_Mar1_MultipleLine_GrowthAssay.csv")
+
+input_file = input_file[]
+
+input_file
+```
+
+## CFU function
+
+```{r}
+#function used to calculate the colony forming units (CFU/cm^2) using: number of colonies counted, dilution factor it was counted at, the volume plated, and the the volume grinded in. 
+cfu_fx = function(num_colonies = NULL, dilution_fc = NULL, vl_plated = 5, vl_grinded = 500){
+  
+  
+  cfu = ((num_colonies * vl_grinded / dilution_fc)/vl_plated * 1)
+  #(is the formula correct, * dilution fc or divide dilution factor)
+}
+
+```
+
+```{r}
+#copy input file into object with same dimension
+output = input_file
+
+# goes through every row and col (- 2 and last one) and performs the cfu_fx function and putputs into a vector
+for (i in 1:nrow(input_file)) { 
+  for (j in 2:(ncol(input_file)-1)) {
+    #send each element to function using default arguments
+    if (is.na(input_file[i,j]) == FALSE){
+      output[i, j] = cfu_fx(num_colonies = input_file[i, j], 
+                          dilution_fc = input_file[i, ncol(input_file)]) #1  the column dilution
+    }
+  }
+}
+
+output
+```
+
+## Change format of data for graphing and summaries
+
+```{r}
+#change format from wide to long, name the variable and the measurement and gather all the columns.
+#test = t(output)
+#colnames(test) = test[1,]
+
+#test = test[2:nrow(test)-1,]
+#test = test[-1,]
+#test 
+#write.csv(test, file = "growth_assay.csv")
+
+#test = read.csv("growth_assay.csv")
+#test
+#Because we already used the dilutions, we don't care about them anymore. We just want the actual counts to use for the graph. 
+transposed_counts = as.data.frame(t(output[,1:ncol(output)-1]))
+colnames(transposed_counts) = transposed_counts[1,]
+transposed_counts = transposed_counts[2:nrow(transposed_counts),]
+
+```
+
+```{r}
+#new_output = as.data.frame(test, na.rm =TRUE) %>% gather(key = Sps_id, value = cfu)
+#new_output = new_output[,5:6]
+
+#output
+
+cfus_graphing = gather(output[,1:ncol(output)-1], key = "Replicate", value = "cfu", -1)
+cfus_graphing = cfus_graphing[is.na(cfus_graphing[,3])==FALSE,]
+
+```
+
+```{r}
+#graph the data using boxplot and overlay the datapoints 
+#boxplot(log(as.numeric(cfu)) ~ Sps_id, data = new_output, 
+  #      outline = FALSE,   
+   #     main = 'boxplot + beeswarm')
+#add the data points and run the entire section as one code
+#beeswarm(log(as.numeric(cfu)) ~ Sps_id, data = new_output, 
+      #   col = 4, pch = 16, add = TRUE)
+
+#new_output$`cfu`=as.numeric(new_output$`cfu`)
+
+#new_output %>% filter(`cfu` > 0) %>% 
+#  ggplot(aes(x=Sps_id, y=cfu, fill=Sps_id)) + 
+#  geom_boxplot()+ geom_point() + 
+#    scale_y_continuous(trans ="log10", limits = c(10e4, 10e9))+
+#    ggtitle("Growth Assay SRF")+
+#    xlab ("")+theme_bw()+ scale_fill_brewer(palette = "Pastel1")
+
+
+#This one graphs stuff in you want a speciic order ,otherwise just use the other one
+cfus_graphing %>% filter(`cfu` > 0) %>% 
+  ggplot(aes(factor(x=Seed_line, levels = Seed_line_order), y=cfu, fill=Seed_line)) + 
+  geom_boxplot()+ geom_point() + 
+    scale_y_continuous(trans ="log10", limits = c(10e4, 10e7))+
+    xlab ("")+theme_bw()+ scale_fill_brewer(palette = "Pastel1") + ylab(expression("Bacterial Growth, Log(cfu/cm"^2*")"))
+
+cfus_graphing %>% filter(`cfu` > 0) %>% 
+  ggplot(aes(x=Seed_line, y=cfu, fill=Seed_line)) + 
+  geom_boxplot()+ geom_point() + 
+    scale_y_continuous(trans ="log10", limits = c(10e3, 10e7))+
+    xlab ("")+theme_bw()+ scale_fill_brewer(palette = "Pastel1") + ylab(expression("Bacterial Growth, Log(cfu/cm"^2*")")) + theme(axis.text.x=element_text(angle=45, hjust=1))
+
+
+ggsave("C:/Users/kileegza/Documents/Growth_Assay/2023_Mar1_Multiple_Growth.png",height=5, width=5, dpi=600)
+
+```
+
+
+##Anova and Dunnet Honest Significant Differences
+
+```{r}
+
+anova_test = aov(cfu ~ Seed_line, data=cfus_graphing) #do linear model function on it and then run anova on the model
+
+summary(anova_test)
+#this performs post-hoc test, compares control to every treatment and looks for significance 
+
+dunnetttest = DunnettTest((cfus_graphing$`cfu`), cfus_graphing$Seed_line, control = NULL, conf.level = 0.95)
+
+
+dunnetttest = DunnettTest(cfus_graphing$cfu, cfus_graphing$Seed_line, control="WT", conf.level=0.95)
+print(dunnetttest)
+
+tukey_thingy = TukeyHSD(anova_test)
+print(tukey_thingy)
+
+
+seedline_vector = unique(cfus_graphing$Seed_line)
+
+duntest_matrix = matrix(nrow=length(unique(cfus_graphing$Seed_line)), ncol=4)
+rownames(duntest_matrix) = seedline_vector
+colnames(duntest_matrix) = c("diff","lwr.ci","upr.ci","pval")
+
+  
+for (i in 1:nrow(duntest_matrix)){
+  
+  if (seedline_vector[i] == "WT"){
+    
+    duntest_matrix[i,] = "0"
+    
+  } else {
+    
+    
+  
+    filtered_subset = cfus_graphing %>% filter(Seed_line==seedline_vector[i] | Seed_line=="WT" )
+  
+    test_dunnett = DunnettTest(filtered_subset$cfu, filtered_subset$Seed_line, conf.level=0.95)
+    print(test_dunnett)
+  
+    duntest_matrix[i,] = unlist(test_dunnett)
+  
+  }
+  
+  
+}
+
+```
+
+
+##Power analysis to figure out if the sample size is good or not
+
+```{r}
+
+library(pwr)
+
+
+
+
+
+```
+

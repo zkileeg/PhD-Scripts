@@ -1,0 +1,21 @@
+##Author: Zachary Kileeg
+##Date: June 28th 2022
+
+
+
+##Proportion plot
+```{r}
+library(ggplot2)
+library(dplyr)
+
+order_LRR_count = read.csv("D:/Sequence_Data/Phylogenetics_Project/Clustering/Predict_PhytoLRR/2022_May16th_LRRCounts_SplitByOrder.csv")
+
+```
+
+
+
+##Sankey diagram
+```{r}
+
+
+```

@@ -1,0 +1,678 @@
+---
+title: "CNV_Estimation"
+author: "Zachary Kileeg"
+date: "8/9/2020"
+output: html_document
+---
+
+```{r chunk1}
+
+
+
+
+
+#Function for estimating copy number using read depth. For each gene in the genome file in the input regions file, this function calculates the average read depth across that gene, divides it by the median read depth of the chromosome it's found on, then outputs that as a potential copy number. 
+CNV_read_depth = function(Genome_Pileup_Dir, Gene_Pileup_Dir, Regions_File, Outdir, Chrom_num, Genome_Median=NULL){
+
+  #Load required packages and functions
+  
+  ###################################
+  
+  
+  require(parallel)
+  require(dplyr)
+  
+  #Function uses a regex to parse read depth
+Conversion = function(list){
+  return(as.character(regmatches(list, gregexpr(pattern="(?<=DP=)(.*?)[^;]*", text=list, perl=TRUE))))
+  
+}
+
+GetMode = function(values){
+  ux = unique(values)
+  ux[which.max(tabulate(match(values,ux)))]
+}
+
+######################################
+  
+  #get list of input genoems and gene-region pileup files 
+  input_files = list.files(Genome_Pileup_Dir, pattern="*.txt")
+  input_pileup_list = list.files(Gene_Pileup_Dir, pattern="*.txt")
+  
+  #Intialize function-wide summary matrix CNV_Summary. This is meant to hold predicted CNV for each file
+  CNV_Summary = matrix(ncol=(Chrom_num+2),nrow=length(input_files))
+  CNV_Summary[,1] = unlist(input_files)
+  colnames(CNV_Summary) = c("Genome", paste("Chr", c(1:Chrom_num),sep=""), "Copy_Gain")
+  
+
+for (file in 1:length(input_files)){
+#for (file in 3:3){
+  print(paste("Working on...", input_pileup_list[file]))
+  
+  #Initialize function-wide variables
+  
+  ########################
+  
+
+  sequence_info = read.delim(paste(Genome_Pileup_Dir, "/", input_files[file], sep=""), sep="\t", nrows=5, skip=4)
+
+  chrom_lengths = as.character(regmatches(sequence_info[,1], gregexpr(pattern="(?<=length=)(.*?)[^>]*", text=sequence_info[,1], perl=TRUE)))
+
+
+#The two following lines are meant to be used if you do not know the column where the read depth information is stored or the type of information stored in the column (integer, numeric, character, etc). If you do know,
+#you can the colClasses argument in read.table to match the columns you want to import. For example, the 8th column has the information we want,
+#so the 8th column will be given the class 'character' while the others will be given NULL. Read.table will skip any columns with type null. 
+
+#get_classes = read.table(paste(Genome_Pileup_Dir, "/", input_files[file], sep=""), sep="\t", header=FALSE, nrows=10, skip=0)
+
+#classes = sapply(get_classes, class)
+  
+  
+#import samtools mpileup. Used to find mean, median, and mode of read depths
+#thingy = matrix(ncol=10)
+
+#Initialize(reinitialize) matrix to store read depth median and mean for usage later on. Prevents memory wastage (hopefully)
+Summary_info = matrix(ncol=3, nrow=5)
+colnames(Summary_info) = c("Chromosome","Mean","Median")
+Summary_info[1:Chrom_num,1] = paste("Chr", c(1:Chrom_num), sep="")
+
+#import mpileup 
+pileup_input = read.table(paste(Gene_Pileup_Dir, "/", input_pileup_list[file],sep=""), sep="\t", header=FALSE, quote="",fill=FALSE)
+
+#Parse input pileup for only read depth. Uses function Conversion, which has a regex to pull out the number after 'DP='
+ cluster = makeCluster(8)
+pileup_parsed= as.data.frame(cbind(pileup_input$V1, pileup_input$V2, matrix(unlist(parLapply(cl=cluster, pileup_input[,8], Conversion)), ncol=1, byrow=TRUE)))
+stopCluster(cluster)
+
+#Remove pileup file from memory as it is no longer needed
+rm(pileup_input)
+gc()
+
+
+#Inport regions file we want to examine. If genes are known, regions file should be the gene start and stop locations
+Gene_Regions = read.table(Regions_File, sep="\t")
+
+
+#initialize CNV_estimate variable to hold copy number information
+CNV_estimate = matrix(data=NA, ncol=4, nrow=nrow(Gene_Regions))
+row.names(CNV_estimate) = Gene_Regions$V1
+colnames(CNV_estimate) = c("Gene_Name", "Gene_Length", "Average_Read_Depth", "Copy_Number")
+
+CNV_estimate[,1] = Gene_Regions$V1
+
+
+
+
+#########################################
+
+#Tell user which file is being worked on currently
+
+
+
+
+  
+
+#Iterate over each chromosome in the sample. This is to reduce memory usage and running out of memory, as well as better predict results over chromosomes (different chromosomes may be biased by length). 
+
+  #for (i in 1:Chrom_num){
+    
+    if (is.null(Genome_Median)){
+    print(c("Chromosome", i))
+  
+ # classes = c("NULL","NULL","NULL","NULL","NULL","NULL","NULL","character","NULL","NULL")
+
+#We want to skip over lines so we don't read everything in, but we don't want to skip anything for the first chromosome. If it's the first chromosome, skip nothing. If it's the second onwards, skip lines equivalent to the length of the chromosomes. The number of rows to read in for each segment are equal to the chromosome length stored in the first 10 lines of the pileup file. 
+    if (i == 1){
+  input_sequence = read.table(paste(Genome_Pileup_Dir, "/", input_files[file], sep=""), sep="\t", header=FALSE, nrows=as.integer(chrom_lengths[i]), skip=0, colClasses=c("NULL","NULL","NULL","NULL","NULL","NULL","NULL","character","NULL","NULL"))
+    } else{
+  input_sequence = read.table(paste(Genome_Pileup_Dir,"/", input_files[file], sep=""), sep="\t", header=FALSE, nrows=as.integer(chrom_lengths[i]), skip=chrom_lengths[i-1], colClasses=c("NULL","NULL","NULL","NULL","NULL","NULL","NULL","character","NULL","NULL"))
+  
+    }
+  
+    
+    #Parse read depth from "DP" field, then find mean and median of the depth for each chromosome. 
+      
+    #Because this step normally takes a very long time, parellize processing to reduce time. 
+    cluster = makeCluster(8)
+    
+    #Parse the input pileup file so we have only read depth. Don't need positional information or anything else. 
+    genome_pileup_parsed= matrix(unlist(parLapply(cl=cluster, X=input_sequence[,1], fun=Conversion)), ncol=1, byrow=TRUE)
+    stopCluster(cluster)
+    
+    #Store median and mean of read depth for each chromosome of this genome, and then store it in Summary_info to be used later
+    Summary_info[i,3] = median(as.numeric(genome_pileup_parsed[,1]))
+    Summary_info[i,2] = mean(as.numeric(genome_pileup_parsed[,1]))
+
+  
+
+
+#clear large memory element we don't need and reclaim used memory for further processes. R will not release the used memory back into windows as it will keep it allocated for R, but will clear the allocated memory for storing the next chromosome pileup information
+  rm(input_sequence)
+  gc()
+  
+ } else {   #if an input file is given with median chromosome read depths, skip to this step. 
+  
+   #Print which chromosome is being worked on
+  print(c("Chromosome", i))
+    
+   #Add median information to Summary_info matrix to be used later
+  #Summary_info[i,3] = as.numeric(Genome_Median[file,i])
+  Summary_info[1,3] = as.numeric(Genome_Median[file,1])
+   
+ }
+  
+  #Summary information holds information for each chromosome. temp_parsed takes the pileup_parsed variable, which is currently holding the parsed information from the gene regions specific pileup, and then filters it so the information present is only for the genes in pileup_parsed located on the chromosome currently being processed (ex. if chromosome 1, temp_parsed takes the parsed pileup information for all positions located on chromosome 1). 
+  #temp_parsed = pileup_parsed %>% filter(V1 == Summary_info[i,1])
+  
+  #Temp regions gets all regions located on the chromosome currently being worked on
+ #temp_regions = Gene_Regions %>% filter(V2 == Summary_info[i,1])
+ 
+ 
+
+   
+ #initialize matrix gene_average
+ #gene_average = matrix(nrow=nrow(temp_regions),ncol=2)
+ #Store regions information in gene_average. gene_average will be grown in the next loop
+# gene_average[,1] = temp_regions$V1
+ 
+ 
+  plot_window_list = vector(mode="list", length=nrow(Gene_Regions))
+names(plot_window_list) = Gene_Regions$V1
+ 
+ #this loop takes the region information, assigns the pileup information from each site to a gene (as dictated by a region), then stores the average of all the read depth information across that region into gene_average. This loop continues until all regions (genes, in this case) in the list are covered and pileup information assigned. 
+  for (j in 1:nrow(Gene_Regions)){ 
+    
+    sliding_window = data.frame()
+    
+    flag=Gene_Regions[j,3]
+    end=Gene_Regions[j,4]
+    
+    while (flag < Gene_Regions[j,4]) {
+      
+      temp_window = matrix(nrow=1, ncol=2)
+      temp_window[1,] = c(flag, flag+200)
+      
+      
+      #This is used for the sequences as reference
+      #pileup_positions_in_region = pileup_parsed %>% filter((V1 == Gene_Regions[j,1]) & (as.numeric(temp_window[1,1])-as.numeric(V2) <=0) & (as.numeric(temp_window[1,2]) - as.numeric(V2) >= 0))
+      
+      #This is used for the reference
+      pileup_positions_in_region = pileup_parsed %>% filter((as.numeric(temp_window[1,1])-as.numeric(V2) <=0) & (as.numeric(temp_window[1,2]) - as.numeric(V2) >= 0))
+      
+      if (dim(pileup_positions_in_region)[1] >0) {
+          
+      region_mean = mean(as.numeric(pileup_positions_in_region$V3))
+      
+      region_CNV = region_mean/as.numeric(Summary_info[1,3])
+      
+      sliding_window = rbind(sliding_window, cbind(temp_window, region_mean, region_CNV))
+      
+      }
+      
+      flag = flag + 100
+    }
+    
+    plot_window_list[[j]] = sliding_window
+    
+    CNV_estimate[j,2] = Gene_Regions[j,4]
+    CNV_estimate[j,3] = mean(sliding_window$region_mean)
+    CNV_estimate[j,4] = round(mean(sliding_window$region_CNV))
+    
+    
+    #filter temp_parsed, which is holding pileup information, to contain the depth of nucleotide positions located within the region (gene) in this     case
+    #pileup_positions_in_region = temp_parsed %>% filter(V2 %in% (as.integer(temp_regions[j,3]):as.integer(temp_regions[j,4])))
+    #find average read depth of the positions across this gene
+    #gene_average[j,2] = mean(as.integer(pileup_positions_in_region[,3]))
+    #gene_average[j,2] = median(as.integer(pileup_positions_in_region[,3]))
+    
+  
+  }
+ 
+ options(max.print=100000)
+
+#Output list of possible CNVs to a text file
+cat(capture.output(print(plot_window_list), file = paste(Outdir, "/All_CNV_", input_pileup_list[file], ".txt", sep="")))
+
+test = lapply(plot_window_list,filter, region_CNV>=1.5)
+
+#Remove empty element froms list
+test[sapply(test, is.null)] = NULL
+
+cat(capture.output(print(test), file = paste(Outdir, "/CNV_Only_", input_pileup_list[file], "TEST.txt", sep="")))
+ 
+ #add the average read depth of each gene to CNV_estimate for each chromosome in the input
+# CNV_estimate = rbind (CNV_estimate, gene_average)
+
+  
+
+  #}
+
+
+  
+
+
+
+  
+  
+  
+  
+
+  #Add read depth information for each chromosome to CNV_Summary
+  CNV_Summary[file, 2:(Chrom_num+1)] = Summary_info[,3]
+
+  #calculate copy number by dividing average read depth by median depth of that chromosome
+  #copy_number = round(as.numeric(CNV_estimate[,2])/as.numeric(Summary_info[i,3]))
+  
+  #add copy number to CNV_estimate
+  #CNV_estimate = cbind(CNV_estimate, copy_number)
+  
+  #change column names
+ # colnames(CNV_estimate) = c("Gene", "Average_Reads", "Copy_Number")
+  
+  #change CNV_estimate to data.frame to use dplyr filter
+  CNV_estimate = as.data.frame(CNV_estimate)
+
+  #remove mis-mapping entries that contain not a number (NaN)
+  CNV_filtered = CNV_estimate %>% filter(Copy_Number >=1 & Copy_Number!="NaN")
+  
+  #add copy number to CNV_SUmmary file for each input genome
+  CNV_Summary[file,(Chrom_num+2)] = sum(as.numeric(CNV_filtered$Copy_Number)) - nrow(CNV_filtered)
+ 
+  #output copy number estimation for the genome currently being worked on
+ write.csv(CNV_estimate, paste(Outdir, "/", tools::file_path_sans_ext(input_pileup_list[file]),".csv", sep=""), row.names=FALSE)
+ 
+  
+
+  }
+  
+  #output summary of all genomes input 
+ # write.csv(CNV_Summary, paste(Outdir, "/CNV_Summary.csv", sep=""), col.names=FALSE, row.names=FALSE)
+  
+}
+
+
+###############################
+```
+
+
+
+```{r}
+#Get genome summary information for chromosomes so it is not required to do in the function. This saves a lot of time. 
+#It is recommended to do this step first, possibly using a tool or script in bash/C++/C#, etc. This step is very time consuming and would benefit from pre-processing. 
+chrom_medians = read.csv("D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/NLR/20200729_NLR_Pileup/NLR_CNV_Out/NLR_CNV_Summary.csv")
+input_medians = chrom_medians[1:nrow(chrom_medians),2:(ncol(chrom_medians)-1)]
+
+pileup_mean = read.table(file="D:/Sequence_Data/Ecotype_DataFiles/Mott_WTCH_Project/BAM_Files/PhaseII/Average_Read_Depth.txt", quote="", sep="\t")
+pileup_median = read.table(file="D:/Sequence_Data/Ecotype_DataFiles/Mott_WTCH_Project/BAM_Files/PhaseII/Datamash_Median_Read_Depth.txt", quote="", sep="\t")
+
+pileup_median=matrix(c(52,52,52,52,52,52,52))
+
+pileup_median = read.table(file="D:/Analysis_Output/SAMTools_Output/Output_BAM_Files/Short_Read/Mapped/SNP_Detection_Ready/Datamash_Median_Read_Depth.txt", quote = "", sep="\t")
+
+
+#NLR Read depth
+CNV_read_depth(Genome_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/PhaseII",Gene_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/NLR/20200823_TAIR10_NLR_Pileup", Regions_File="C:/Users/kileegza/Documents/BCFTools/TAIR10_NLR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/NLR/20200823_TAIR10_NLR_Pileup/NLR_CNV_Out", Chrom_num=5,Genome_Median=pileup_median )
+
+#LRR read depth
+CNV_read_depth(Genome_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/PhaseII",Gene_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/LRR/20200823_TAIR10_LRR_Pileup", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_LRR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/LRR/20200823_TAIR10_LRR_Pileup/LRR_CNV_Out", Chrom_num=5, Genome_Median=pileup_median)
+
+
+CNV_read_depth(Genome_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/LRR/20200928_C24_LRR_Pileup", Gene_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/LRR/20200928_C24_LRR_Pileup", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_LRR_GeneRegions_minus_kinase_with_names.txt", Outdir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/LRR/20200928_C24_LRR_Pileup/CNV_Out/Kinase_Only", Chrom_num=5, Genome_Median=pileup_median)
+
+
+CNV_read_depth(Genome_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/LRR/20200928_C24_LRR_Pileup/Sequences_Reference", Gene_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/LRR/20200928_C24_LRR_Pileup/Sequences_Reference", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_LRR_Sequence_Regions_with_names.txt", Outdir="D:/Analysis_Output/BCFTools_Output/Pileup/Read_Depth_Output/LRR/20200928_C24_LRR_Pileup/CNV_Out/Sequences_Reference", Chrom_num=5, Genome_Median=pileup_median)
+
+CNV_read_depth(Genome_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/Short_Reads_from_long_read_paper", Gene_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup/Short_Reads_from_long_read_paper", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_LRR_GeneRegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Pileup/Short_Reads_from_long_read_paper/CNV_Out", Chrom_num=5, Genome_Median=pileup_median)
+
+
+
+
+
+#messing with stuff
+
+ sequence_info = read.delim("D:/Analysis_Output/SAMTools_Output/Read_Depth_Output/20200805_Can_0_can_phaseI.bam_Pileup_calls.txt", sep="\t", nrows=5, skip=4)
+
+chrom_lengths = as.character(regmatches(sequence_info[,1], gregexpr(pattern="(?<=length=)(.*?)[^>]*", text=sequence_info[,1], perl=TRUE)))
+
+
+
+input_sequence = read.table("D:/Analysis_Output/SAMTools_Output/Read_Depth_Output/20200805_Can_0_can_phaseI.bam_Pileup_calls.txt", sep="\t", header=FALSE, nrows=as.integer(chrom_lengths[1]), skip=0)
+
+input_sequence = read.table("D:/Analysis_Output/SAMTools_Output/Read_Depth_Output/20200805_Can_0_can_phaseI.bam_Pileup_calls.txt", sep="\t", header=FALSE, nrows=100, skip=0)
+
+
+thingy = as.character(regmatches(input_sequence[,8], gregexpr(pattern="(?<=DP=)(.*?)[^;]*", text=input_sequence[,8], perl=TRUE)))
+
+thingy =regmatches(input_sequence[,8], regexpr("[^DP=][0-9][^\\;]", input_sequence[,8], perl=TRUE))
+
+```
+
+##Chunk estimates CNV by taking the allele frequency of variant sequences, finding the ratio, and determining if there is a greatly different ratio ##Takes input from BCFTools mpileup-->bcftools call --> .vcf file in
+##EXAPLANATION OF FUNCTION:
+##Takes the input of allele depth, parses it and divides the 'b-allele' (the second most commonly sequenced allele) by the 'a-allele' (most commonly sequenced allele). With this information, it then takes the output and maps it to the region where the gene is found. This result is then output. Sequence input is only taken when the Phred score (the -10log10(p-value)) is greater than 30 (meaning that there's a 1 in 1000 chance there's an error at that particular base). Strand bias is also taken into consideration where the score is <60 (may change over time). 
+```{r}
+
+library(stringr)
+library(dplyr)
+
+
+#Functions used in this chunk
+#####################################################################################
+
+
+#Allele depth calculation function. Takes as arguments the directory of the VCF file, the regions file containing gene location information, the directory to output information to, and the ploidy of the input genomes if known. The default is diploid (2). 
+
+
+Allele_Depth_CNV = function(VCF_Directory, Regions_File, Outdir, Median_Depth_File=NULL, Filter_Depth=0, Ploidy=2, Phred_Score=30, Gain_Loss=1, min_entries=1){
+  
+  
+  ###########################
+  #Packages and function required for this function
+  require(dplyr)
+  require(parallel)
+  
+  
+  Parse_AD = function(list){
+  return(as.character(regmatches(list, gregexpr(pattern="(?<=AD=)(.*?)[^;]*", text=list, perl=TRUE))))
+  
+  }
+  
+   Parse_Depth = function(list){
+  return(as.character(regmatches(list, gregexpr(pattern="(?<=DP=)(.*?)[^;]*", text=list, perl=TRUE))))
+  
+  }
+
+std_error = function(x){
+  return(sd(x) / sqrt(length(x)))
+}
+
+
+################################  
+  
+#Get list of VCF files in given directory  
+VCF_Files = list.files(VCF_Directory, pattern="*.vcf")
+
+
+#Define global variables for summary output
+
+CNV_Summary_Out = matrix(nrow=length(VCF_Files),ncol=3)
+Gene_Copies = data.frame()
+
+
+
+
+#Loops over each vcf file in the directory   #######Loop Start
+for (VCF in 1:length(VCF_Files)){   
+  
+  
+  #Import lists of .vcf files from folder
+
+print(c("Outputting",VCF_Files[VCF]))
+
+Input_VCF = read.table(paste(VCF_Directory, "/", VCF_Files[VCF],sep=""), sep="\t", quote="",fill=FALSE, header=FALSE)
+
+
+#Create local variables to be used for summary output
+CNV_Summary= matrix(ncol=9)
+
+
+
+#Import regions file (genes) for mapping
+Input_Regions = as.data.frame(read.table(Regions_File, sep="\t"))
+
+
+
+
+
+
+#Parse VCF 
+cluster = makeCluster(8)
+VCF_Parsed= as.data.frame(cbind(Input_VCF$V1, Input_VCF$V2, matrix(unlist(parLapply(cl=cluster, X=Input_VCF[,8], fun=Parse_AD)), ncol=1, byrow=TRUE), Input_VCF$V6,matrix(unlist(parLapply(cl=cluster, X=Input_VCF[,8], fun=Parse_Depth)), ncol=1, byrow=TRUE)))
+stopCluster(cluster)
+
+
+#grab wanted columns from the parsed VCF file. 
+allele_depth = cbind(VCF_Parsed$V1, VCF_Parsed$V2, as.data.frame(t(mapply(function(x,y) {
+  length(x) = y
+  return(x)
+}, strsplit(VCF_Parsed$V3, ","), 3))), VCF_Parsed$V4, VCF_Parsed$V5)
+
+
+
+colnames(allele_depth) = c("Chr", "Location", "Ref_Allele", "Alt_Allele1", "Alt_Allele2", "Phred_likelihood", "Read_Depth")
+
+
+
+
+
+chrom_list = unique(VCF_Parsed$V1)
+
+
+  
+
+  
+  
+#Filter allele depth so that stored information are rows that have allele depth greater than or equal to 2, the total read depth is greater than 15, and the likelihood of a mapping error is less than 1/1000 (phred likelihood of 30). 
+if (Gain_Loss ==1){
+  filtered_ad = allele_depth %>% filter(Ref_Allele>=1 & Alt_Allele1>=1 & (as.integer(Ref_Allele) + as.integer(Alt_Allele1)) >=15 & as.integer(Phred_likelihood) >= 30)
+} else if (Gain_Loss ==-1){
+  filtered_ad = allele_depth %>% filter(Ref_Allele>=1 & Alt_Allele1>=1 & (as.integer(Ref_Allele) + as.integer(Alt_Allele1)) >=15 & as.integer(Phred_likelihood) >= 30)
+}
+#############################################
+
+
+
+#intialize matrix to hold b-allele frequency based on the number of rows from filtered_ad
+b_allele_freq = matrix(nrow=nrow(filtered_ad),ncol=2) 
+colnames(b_allele_freq) = c("b_allele_frequency", "Gained_Copies")
+ 
+
+
+bafreqvalues = as.vector(c(0.2,0.25,0.3333,0.5,0.6,0.6666,0.75,0.8,1))
+
+#if b_allele_frequency is not empty, calculate b-allele frequency and copy number gain               
+if (dim(b_allele_freq)[1] > 0){
+
+  #iterate over rows in b_allele_freq
+  for (i in 1:nrow(b_allele_freq)){
+  
+    #calculate b allele frequency by taking smallest allele depth / (smallest allele depth + largest allele depth)
+   # b_allele_freq[i,1] = min(as.numeric(filtered_ad[i,3:4]))/ (min(as.numeric(filtered_ad[i,3:4])) + max(as.numeric(filtered_ad[i,3:4])))
+    
+    #calculate potential copy number gain by taking (largest allele depth - smallest allele depth) / smallest allele depth
+   # b_allele_freq[i,2] = (max(as.numeric(filtered_ad[i,3:4])) - min(as.numeric(filtered_ad[i,3:4])))/min(as.numeric(filtered_ad[i,3:4]))
+    
+     #calculate b allele frequency by taking smallest allele depth / (smallest allele depth + largest allele depth)
+   b_allele_freq[i,1] = bafreqvalues[which.min(abs(bafreqvalues - (as.numeric(filtered_ad[i,4])/ (as.numeric(filtered_ad[i,3]) + as.numeric(filtered_ad[i,4])))))]
+    
+    #calculate potential copy number gain by taking (largest allele depth - smallest allele depth) / smallest allele depth
+   b_allele_freq[i,2] = (1/b_allele_freq[i,1])-2
+    
+    
+  
+  }
+}
+
+
+#add the b_allele_freq variable, containing b-allele frequency and potential copy number gain, to the original filtered AD variable
+
+
+
+
+
+#test = b_allele_freq
+
+#for (val in 1:nrow(b_allele_freq)){
+  
+ # test[val,1] = bafreqvalues[which.min(abs(bafreqvalues - b_allele_freq[val,1]))]
+  
+#}
+
+AD_b_freq = cbind(filtered_ad, b_allele_freq)
+
+if (Filter_Depth > 0 & Gain_Loss == 1){
+  AD_b_freq = AD_b_freq %>% filter((as.numeric(Read_Depth)/Median_Depth_File[VCF,]) >= Filter_Depth)
+} else if (Filter_Depth > 0 & Gain_Loss == -1){
+  
+  AD_b_freq = AD_b_freq %>% filter((as.numeric(Read_Depth)/Median_Depth_File[VCF,]) <= Filter_Depth)
+}
+
+
+#####################################
+
+
+#Create empty list based on input regions file
+Mappings = vector(mode="list", length=nrow(Input_Regions))
+names(Mappings) = Input_Regions$V1
+
+#Loop over the length of mappings, which is equal to the number of input genes to be examined
+for (i in 1:length(Mappings)){
+  
+
+  #For each gene, assign the variants located within each gene region
+ temp = AD_b_freq %>% filter((as.numeric(Input_Regions[i,3])-as.numeric(Location) <=0) & (as.numeric(Input_Regions[i,4]) - as.numeric(Location) >= 0) & (Chr==Input_Regions[i,2]) & Gained_Copies >= 0)
+ ####################################################### 
+#temp = AD_b_freq %>% filter(between(as.numeric(Location), as.numeric(Input_Regions[i,3]), as.numeric(Input_Regions[i,4])) & Chr==Input_Regions[i,2])
+  
+  
+  
+  #temp = rbind(temp,colMeans(temp[sapply(temp, is.numeric)]))
+  
+  
+  
+  
+  #If there are variants located within a gene, assign these values to variable averages. Averages then calculates the average of each numeric field
+
+  if (dim(temp)[1]>0 & nrow(temp)>=min_entries & mean(temp$Gained_Copies)>=0.75){
+    
+    averages = matrix(nrow=1, ncol=ncol(temp))        #initialize averages
+    averages[1,1] = "Mean+std.err"                 #Add row information
+    averages[1,2] = "-"                                 #placeholder character
+    averages[1,3] = round(mean(as.numeric(temp$Ref_Allele)), digits=5)           #find the rounded average allele depth for allele A
+    averages[1,4] = round(mean(as.numeric(temp$Alt_Allele1)), digits=5)          #find rounded average allele depth for allele B
+    averages[1,5] = round(mean(as.numeric(temp$Allele_3)), digits=5)           #find rounded average allele depth for allele C, if it exists
+    averages[1,6] = "-"     #placeholder
+    
+    
+    averages[1,7] = round(mean(as.numeric(temp$Read_Depth),5))
+    
+    #calculate average b-allele frequency for this gene with std error
+    averages[1,8] = paste(round(mean(as.numeric(temp$b_allele_frequency)), 5), "+/-", round(std_error(temp$b_allele_frequency), digits=5),sep="")
+    #calculate average predicted copy number gain for this gene with std error
+    averages[1,9] = paste(round(mean(as.numeric(temp$Gained_Copies)), 5), "+/-", round(std_error(temp$Gained_Copies), digits=5),sep="")
+    
+    #assign column names to averages
+    colnames(averages) = colnames(temp)
+     
+    #Add the allele depth information and combine it with the averages for these fields, then store it in the list Mappings for each gene
+    Mappings[[i]] = rbind(temp, averages)
+    
+    #Add the averages information to CNV_Summary for the summary export of each genome
+    CNV_Summary = rbind(CNV_Summary, averages)
+    
+     }
+  
+  }
+
+
+
+#Remove empty element froms list
+Mappings[sapply(Mappings, is.null)] = NULL
+
+
+#Printing list caps at X elements, make sure that all variant information can be output correctly
+options(max.print=100000)
+
+#Output list of possible CNVs to a text file
+cat(capture.output(print(Mappings), file = paste(Outdir, "/CNV_", VCF_Files[VCF], ".txt", sep="")))
+
+
+Gene_Copies = unlist(c(Gene_Copies, names(Mappings)))
+
+#if Mappings is not empty, calculate the total copy number gain for each genome, then add it to CNV_Summary_Out
+if (length(Mappings) > 0){
+  #Get summary stats for output
+CNV_Summary_Out[VCF,1] = tools::file_path_sans_ext(VCF_Files[VCF])
+CNV_Summary_Out[VCF,2] = length(Mappings)
+CNV_Summary_Out[VCF,3] = sum(as.numeric(gsub("(\\+\\/\\-).*","",CNV_Summary[2:nrow(CNV_Summary),9], perl=TRUE)))
+
+
+colnames(CNV_Summary_Out) = c("Input_File","Number_of_Genes", "Overall_Copy_Gain")
+
+}
+  
+
+  
+}
+
+#if (nrow(CNV_Summary_Out) > 1){
+  
+Genes_Multiple_Ecotypes = unique(Gene_Copies[duplicated(Gene_Copies)])
+length(Genes_Multiple_Ecotypes) = length(unique(Gene_Copies))
+
+Genes_One_Ecotype = setdiff(Gene_Copies, Genes_Multiple_Ecotypes)
+length(Genes_One_Ecotype) = length(unique(Gene_Copies))
+
+copies_out = cbind(unique(Gene_Copies), Genes_Multiple_Ecotypes, Genes_One_Ecotype)
+colnames(copies_out) = c("Total_Copied_Genes","Genes_Copied_Multiple_Ecotypes","Genes_Copied_One_Ecotype")
+
+#} else {
+  
+ # copies_out = CNV_Summary_Out[,1]
+#}
+
+  
+#output summary stats
+write.csv(CNV_Summary_Out,file=paste(Outdir,"/Summary.csv",sep=""), row.names=FALSE, quote=FALSE)
+
+write.csv(copies_out, paste(Outdir, "/Copied_Gene.csv", sep=""), row.names=FALSE, quote=FALSE, na="")
+
+print("Done!")
+
+}
+
+```
+
+
+
+```{r}
+
+
+####################################################################################
+pileup_median = read.table(file="D:/Analysis_Output/SAMTools_Output/Output_BAM_Files/MOTT_WTCH_Read_Depth_Median_PII.txt", quote="", sep="\t")
+pileup_median = read.table(file="D:/Analysis_Output/SAMTools_Output/Output_BAM_Files/Short_Read/Mapped/SNP_Detection_Ready/Datamash_Median_Read_Depth.txt", quote = "", sep="\t")
+
+#Using function Allele_Depth_CNV for the LRRs
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/Whole_Genome/MOTT_Project/PhaseII", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_LRR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/Whole_Genome/MOTT_Project/PhaseII/LRR", Median_Depth_File=pileup_median, Filter_Depth=1.5,Ploidy=2, min_entries=15)
+
+#Using function Allele_Depth_CNV for the NLRs
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/NLR/Short_Read_Long_Ecotype", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_NLR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/NLR/Short_Read_Long_Ecotype/CNV_Out", Median_Depth_File=pileup_median, Filter_Depth=1.5, Ploidy=2)
+
+
+#Using function with control list of random genes
+
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/Random_Genes/PhaseII", 
+                  Regions_File="D:/Sequence_Data/Random_Genes_Names_Regions.tsv", 
+                 Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/Random_Genes/PhaseII/Allele_Balance_CNV_Out/20200823_CNV_Out", Ploidy=2, Filter_Depth=1.5, Median_Depth_File=pileup_median)
+
+
+#For other files
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/Whole_Genome/MOTT_Project", Regions_File="C:/Users/kileegza/Documents/BCFTools/TAIR10_LRR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/Whole_Genome/MOTT_Project/LRR_CNV_Out", Ploidy=2)
+
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/NLR/TAIR10/PhaseII", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_NLR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/NLR/TAIR10/PhaseII/Allele_Balance_CNV_Out", Median_Depth_File=pileup_median, Filter_Depth=1.5, Ploidy=2, Gain_Loss=1, min_entries=15)
+
+
+
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/TAIR10/PhaseII", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_LRR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/TAIR10/PhaseII/Allele_Balance_CNV_Out/20201018_Allele_Balance_Out", Median_Depth_File=pileup_median, Filter_Depth=1.5, Ploidy=2, Gain_Loss=1, min_entries=15)
+
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/Test", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_LRR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/Test/CNV_Out", Median_Depth_File=pileup_median, Filter_Depth=1.5, Ploidy=2, Phred_Score=15, min_entries=15, Gain_Loss=1)
+
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/Col_Long_Read_References", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/C24_LRR_GeneRegions_with_names.txt", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/Col_Long_Read_References/CNV_Out", Median_Depth_File=pileup_median, Filter_Depth=1.5,Ploidy=2, Phred_Score=15)
+
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/NLR/Short_Read_Long_Ecotype", Regions_File="C:/Users/kileegza/Documents/BCFTools/Gene_Regions/TAIR10_NLR_Generegions_With_Names.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/NLR/Short_Read_Long_Ecotype/CNV_Out", Median_Depth_File=pileup_median, Filter_Depth=1.5, Ploidy=2, Phred_Score=15, min_entries=15, Gain_Loss=1)
+
+
+
+
+```
+

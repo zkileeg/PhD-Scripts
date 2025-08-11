@@ -1,0 +1,133 @@
+---
+title: "Get_Representative_Fasta"
+author: "Zachary Kileeg"
+date: "9/15/2020"
+output: html_document
+---
+
+```{r}
+library(phylotools)
+library(dplyr)
+
+
+
+directory = "C:/Users/kileegza/Documents/HMMER/Fastas/Athal"
+csv_directory = "C:/Users/kileegza/Documents/HMMER/HMMSEARCH_Outputs/2020_09_15_28_Ecotype_ATHAL"
+
+prot_fasta_list= list.files(directory, pattern = "*.fasta", recursive=FALSE, full.names=TRUE) 
+csv_list = list.files(csv_directory, pattern="*.csv", recursive=FALSE, full.names=TRUE)
+
+representative_gene_models = read.table("C:/Users/kileegza/Documents/Non-Github analysis/Genome Data/TAIR10_Representative_Gene_Models.txt")
+
+gene_sequences = read.fasta(paste(directory, "/Araport11_genes.201606.pep.fasta", sep=""))
+
+
+
+
+#for (i in 1:length(prot_fasta_list)){
+thing = read.csv(csv_list[i])
+  
+  fasta_prot = as.data.frame(read.fasta(prot_fasta_list[i]))
+  
+  
+  
+  
+  things = fasta_prot %>% filter(seq.name %in% thing$pkinase_only)
+  
+  things$seq.name = paste(">", things$seq.name, sep="")
+  
+  write.table(things, paste("D:/Sequence_Data/Ecotype_DataFiles/FASTA_Files/Unaligned/Representative_RLKs_", basename(prot_fasta_list[i]), sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+#}
+
+
+gene_sequences$seq.name = gsub("\\s.*$", "", gene_sequences$seq.name, perl=TRUE)
+
+
+things = gene_sequences %>% filter(seq.name %in% representative_gene_models$V1)
+  
+  things$seq.name = paste(">", things$seq.name, sep="")
+  
+  write.table(things, "D:/Sequence_Data/Ecotype_DataFiles/FASTA_Files/Gene_Expansion_Detection/Col_0_representative_prot_models.fasta", col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+
+for (i in 1:nrow(things)){    
+  
+  write.table(things[i,], paste("C:/Users/kileegza/Documents/Blast/Blast_In/LER_Genes", gsub(">","",things[i,1]),".fasta", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+
+  
+}
+
+```
+
+
+
+
+
+
+
+###This chunk is meant to take a list of gene/protein names and output the corresponding fasta based on it from another input file
+
+```{r}
+library(dplyr)
+library(phylotools)
+library(seqinr)
+
+nucleotide_fasta = read.fasta("D:/Analysis_Output/SAMTools_Output/Output_BAM_Files/Short_Read/An-1_TAIR10_ref.sam_Fastq/Assem/contigs.fa")
+nucleotide_fasta$seq.text = str_pad(nuclstring, (ceiling(nchar(nuclstring)/3)*3), side="right", pad="N")
+nucleotide_test = nucleotide_fasta
+nucleotide_test$seq.prot = as.AAbin.character(trans(nucleotide_fasta$seq.text))
+prot = as.AAbin.character(trans(nuclstring))
+
+sequence_data_file = read.fasta("D:/Sequence_Data/Phylogenetics_Project/Input_FASTAs/20200805_Fastas/LRR_WholeSequences/20200716_blast_seqs_nodups.fasta")
+clades_directory="D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/20200815/20200802_LRR_notkinase_domain/Tree_Text_Output/Subclades_Family_I-1.csv"
+clades = read.csv("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/20200815/20200802_LRR_notkinase_domain/Tree_Text_Output/Subclades_Family_I-1.csv")
+
+for (i in 1:ncol(clades)){
+  
+  output_sequences = sequence_data_file %>% filter(seq.name %in% clades[,i])
+  output_sequences$seq.name = paste(">", output_sequences$seq.name, sep="")
+  
+  write.table(output_sequences, paste("D:/Sequence_Data/Phylogenetics_Project/Family_Subclades/", tools::file_path_sans_ext(gsub("^.*/", "", clades_directory)), "_clade", i, ".fasta", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+##This chunk is meant to be used if all fasta files are in one directory and you want the sequences of specific genes/proteins
+```{r}
+library(dplyr)
+library(phylotools)
+
+fasta_directory = "C:/Users/kileegza/Documents/HMMER/Fastas/LRR_RLK_Only_FASTAs/Seven_ecotype_Athal"
+protein_fastas = list.files(fasta_directory, recursive=FALSE, full.names=TRUE)
+
+protein_names = read.csv("D:/Sequence_Data/Ecotype_DataFiles/FASTA_Files/2020_08_12_LRRs_seven_ecotypes_Family2.csv")
+
+out_directory = "D:/Sequence_Data/Ecotype_DataFiles/FASTA_Files/Unaligned/Longread_vs_shortread/LRR_Family_2"
+
+for (i in 1:ncol(protein_names)){
+  
+  protein_sequences = read.fasta(protein_fastas[i])
+  
+  family_2_lrrs = protein_sequences %>% filter(seq.name %in% protein_names[,i])
+  family_2_lrrs$seq.name = paste(">", family_2_lrrs$seq.name, sep="")
+  
+  write.table(family_2_lrrs, paste(out_directory, "/", tools::file_path_sans_ext(basename(protein_fastas[i])), "family_2.fasta", sep=""), quote=FALSE, row.names=FALSE, col.names=FALSE, sep="\n")
+  
+}
+
+
+```
+
+
+
+
+

@@ -1,0 +1,2085 @@
+---
+title: "Alignment Integration"
+author: "Zachary Kileeg"
+date: "11/21/2019"
+output: html_document
+---
+
+
+
+```{r}
+#Take list of genes in a fasta file and find which are the most similar to the gene/protein of interest
+
+#load required
+library(RecordLinkage)
+library(stringdist)
+library(stringr)
+library(ggvis)
+
+
+
+
+#Get sequence data from csv files. Change depending on requirements
+
+protein <- read.csv("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/lrrrlklist.csv", sep = ",", header = TRUE)
+
+stringvalues <- read.csv("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Sha/Sha_protlist.csv", header = FALSE, sep = ",")
+
+#Test file
+#test <- read.csv("C:/Users/kileegza/Documents/Non-Github analysis/test.csv", header = TRUE, sep = ",")
+
+#flatten list and coerce values into a character vector
+compare = as.character(unlist(stringvalues$V1))
+
+
+#function closest match. Take string list containing LRRs and, sequentially, calculate the 'string' distance 
+#between the protein sequence and the 22000 sequences from the ecotype proteome. Return the string containing
+#the highest value (most similar sequence)
+#Closest match has an issue: It will ALWAYS find the closest match, even for sequences that have no equivalent in Columbia. A better method
+#would be to do the selection analysis based on orthologs only
+
+Closestmatch = function(stringlist, string) {
+  
+  
+  distance = levenshteinSim(stringlist, string)
+  string[distance == max(distance)]
+}
+
+
+
+#sequentially go through protein codes and send it to Closest match to get string from ecotype closest matching columbia sequence
+Output = lapply(as.character(protein$Protein), Closestmatch, string = compare)
+
+
+#write output to a csv
+write.csv(Output,"C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Sha_prot_out.csv")
+```
+
+##Library and global variable assignment chunk
+
+##This is for aligning any number of genes using ClustalW, ClustalOmega, Muscle, MAFFT, or DECIPHER algorithms
+
+##NOTE: some packages have overlapping functions (read.fasta, for example) so make sure that whichever package is being used in the chunk is run alone
+
+```{r, echo = FALSE}
+
+
+#import aligner
+library(msa)
+library(DECIPHER)
+library(ape)
+library(dplyr)
+library(stringr)
+library(pegas)
+library(PopGenome)
+library(phylotools)
+
+
+
+#import file containing genes. Files need rows to represent ecotype and columns to represent genes
+list <- read.csv(file = "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Ecotype alignment_sequence.csv", row.names = 1, header = TRUE)
+
+prot_list = read.csv(file = "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Ecotype alignment_sequence.csv")
+
+lrrs = read.csv(file = "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/LRR_list_for_R.csv", header = TRUE)
+
+
+
+```
+
+```{r}
+
+
+
+```
+
+
+##Chunk here is meant to parse gene data from files
+```{r}
+
+input = read.fasta("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/1001_pseudogenomes_174strains_Edit.FASTA")
+
+#add > to the start of all sequences from the input$seq.name column to be used as FASTA output
+input$seq.name = interaction(">", input$seq.name, sep = "")
+
+#make data frame to stores values from input fasta, only column two with sequence data
+fasta_out = data.frame(input[,2], row.names=paste(">",input$seq.name)) 
+
+#loop through the number of variants, in this case 174, for the 224 genes
+for (i in 1:(nrow(input)/174)){
+  
+  j = i * 174
+  
+ filename = substring(input[(j-1),1], regexpr("AT.*", input[(j-1),1]))
+  
+  #output results for alignment and tree generation as non-aligned fastas
+  write.table(input[(j-173):j, ], paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/Alignments/",filename, "_WITH_COL.FASTA", sep=""), sep = "\n", quote=FALSE, row.names=FALSE, col.names = FALSE)
+  
+}
+
+############################################################################################################################################
+
+
+input = read.fasta("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/1001_pseudogenomes_174strains_Edit.FASTA")
+
+#add > to the start of all sequences from the input$seq.name column to be used as FASTA output
+input$seq.name = interaction(">", input$seq.name, sep = "")
+
+#make data frame to stores values from input fasta, only column two with sequence data
+fasta_out = data.frame(input[,2], row.names=paste(">",input$seq.name)) 
+
+#loop through the number of variants, in this case 174, for the 224 genes
+for (i in 1:(nrow(input)/174)){
+  
+  j = i * 174
+  
+ filename = substring(input[(j-1),1], regexpr("AT.*", input[(j-1),1]))
+ thing = rbind(as.matrix(input[(j-173):j,c(1,2) ]),key[i,c(1,2)])
+ thing[175,1] = paste(">",thing[175,1], sep = "")
+  
+  #output results for alignment and tree generation as non-aligned fastas
+  write.table(thing, paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/Alignments/",filename, "_WITH_COL.FASTA", sep=""), sep = "\n", quote=FALSE, row.names=FALSE, col.names = FALSE)
+  
+}
+thing = rbind(as.matrix(input[1:174,c(1,2) ]),key[1,c(1,2)])
+
+thing[175,1] = paste(">",thing[175,1], sep = "")
+
+```
+
+##Print files from list into FASTA format to be used for further analysis. Grabbing values explicitly from tables has issues for some packages,
+##so first save as a FASTA, then have packages read those later to be used from source
+
+
+```{r}
+
+writefasta = read.csv(file = "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Ecotype_prot_FASTA.csv", header = TRUE, sep = ",", row.names=1)
+
+for(i in 1:231){
+write.table(writefasta[1:9, i], paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/", lrrs[i,], "_Protein.fasta", sep = ""), row.names = FALSE, quote=FALSE, col.names = FALSE)
+  }
+
+
+```
+
+
+##Alignment using DECIPHER for codon sequences
+```{r}
+
+
+
+require(DECIPHER)
+
+directory = "D:/Analysis_Output/hyphy/CDS/"
+files_list=list.files(directory,pattern="*fixed_seqs.cds$")
+
+for (i in 1:length(files_list)){
+  fas = paste(directory, files_list[i], sep = "")
+  seqs = readDNAStringSet(fas)  #read fasta file and assign to variable
+  seqs = OrientNucleotides(seqs) #orient nucleotides to ensure correct reading frames
+ # Translate DNA sequences to amino acids, align them based on protein sequence, and reverse transcribe for output
+  aligned = AlignTranslation(myXStringSet = seqs, refinements = 10, readingFrame = NA, type = "DNAStringSet")  
+  #aligned = AlignSeqs(seqs) 
+  
+  #Use this function here if you want to align sequences based on DNA only
+  #aligned = AlignSeqs(myXStringSet = seqs, refinements = 5)
+  aligned_adjusted = AdjustAlignment(aligned)
+  
+  #write fasta alignment out
+  writeXStringSet(aligned_adjusted, file=paste(directory,files_list[i],"_DECIPHERAligned.fasta",sep=""))
+  
+}
+
+#############################################I DON"T KNOW WHAT BELOW THIS IS DOING SO IGNORE IT#########################
+#Loop through the instances of your genes 
+for (i in 1:length(list.files(directory))){
+
+  fas = paste(directory, list.files(directory,pattern="*.fixed_seqs.cds")[i], sep = "")
+  seqs = readAAStringSet(fas)  #read fasta file and assign to variable
+  #seqs = OrientNucleotides(seqs) #orient nucleotides to ensure correct reading frames
+  #Translate DNA sequences to amino acids, align them based on protein sequence, and reverse transcribe for output
+  #aligned = AlignSeqs(myXStringSet = seqs, refinements = 5, readingFrame = NA, type = "AA")  
+  #aligned = AlignSeqs(seqs) 
+  
+  #Use this function here if you want to align sequences based on DNA only
+  #aligned = AlignSeqs(myXStringSet = seqs, refinements = 5)
+  
+  #write fasta alignment out
+  writeXStringSet(aligned, file=paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/174_1001genomes/", list.files(directory)[i], sep = ""))
+}
+
+#Loop through the instances of your genes 
+for (i in 1:length(list.files(directory))){
+
+  fas = paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/", list.files(directory)[i], sep = "")
+  
+  aligned = Align(filein=fas, fileout=paste(directory, "testout", list.files(directory)[i], sep = ""), inseq_type = "DNA", outseq_type ="DNAStringSet", aligntranslation = TRUE )
+  
+  #Use this function here if you want to align sequences based on DNA only
+  #aligned = AlignSeqs(myXStringSet = seqs, refinements = 5)
+  
+  
+}
+
+
+
+
+
+ 
+  
+  
+  read = "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/Cleaned version test"
+  test = readDNAStringSet(fas)  #read fasta file and assign to variable
+  BrowseSeqs(aligned_adjusted)
+  
+  Staggered = StaggerAlignment(aligned_adjusted)
+  
+  #Function for aligning DNA or Amino acids using the DECIPHER package. Requires DECIPHER. 
+  
+  Align = function(filein = "", fileout = "", inseq_type = "", outseq_type = "", aligntranslation = FALSE){
+    
+    if(toupper(inseq_type) == "DNA"){
+      
+      seqs = readDNAStringSet(filein)  #read fasta file and assign to variable
+  
+      seqs = OrientNucleotides(seqs) #orient nucleotides to ensure correct reading frames
+      
+      # Translate DNA sequences to amino acids, align them based on protein sequence, and reverse transcribe for output
+      if(aligntranslation == TRUE){ 
+        print("Aligned DNA by Translation")
+         aligned = AlignTranslation(myXStringSet = seqs, refinements = 5, readingFrame = NA, type = outseq_type)} 
+        else {
+          print("Aligned DNA")
+          aligned = AlignSeqs(seqs) }
+    } 
+    else if(toupper(inseq_type) == "AA"){
+      print("Aligned AA")
+      seqs = readAAStringSet(filein)
+      aligned = AlignSeqs(seqs) 
+    }
+    else
+    {
+      stop(paste("String ", inseq_type, " is not a recognised format. Use 'DNA' or 'AA'", sep = ""))   #if format is not recognised, 
+    }
+  
+   #Use this function here if you want to align sequences based on DNA only
+    #aligned = AlignSeqs(myXStringSet = seqs, refinements = 5)
+    aligned_adjusted = AdjustAlignment(aligned)
+    #write fasta alignment out
+    writeXStringSet(aligned_adjusted, file=fileout)
+    
+  }
+  
+  read.table("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/Alignments/Aligned/file.txt")
+  
+  
+  #for aligning single sequences
+  fasta = "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/Alignments/AT1G04210_WITH_COL.FASTA"
+  
+  directory = "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/Combined/182_Genotypes_Selection_Analysis"
+  
+  fasta_files = list.files(directory, pattern = "*.fasta")
+  
+  for(i in 1:length(fasta_files)){
+  Align(filein = paste(directory, "/", fasta_files[i], sep = ""), fileout = paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/174_1001genomes/182_Genomes_LRRs/", fasta_files[i], sep = ""), inseq_type = "DNA", outseq_type = "DNA", aligntranslation = TRUE)
+  }
+
+
+```
+
+
+
+
+
+```{r}
+
+
+```
+
+
+
+
+##Alignment using MAFFT algorithm --still incomplete
+
+```{r}
+
+ for (i in 1:231){
+    
+    fas = paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/", lrrs[10,], ".fasta", sep = "")
+    
+   
+    fasta = read.FASTA(fas, type = "DNA")
+    
+    alignment = mafft(x = fasta, run.label = paste ("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/", lrrs[10,], "_mafft_test.fasta", sep = ""), delete.output = FALSE)
+    
+    rownames(out) = paste(row.names(list), colnames(list[i]))    #set rownames equal to ecotype name followed by gene name
+    
+    #write the file to a folder. Name represents whichever gene was aligned across the ecotypes
+    writeXStringSet(unmasked(out), file= paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/", colnames(list[i]), ".fasta", sep = ""))
+    
+  }
+
+```
+
+
+##Alignment with muscle, clustalw, or clustalomega using MSA
+```{r}
+
+#simple for loop to go through the 231 columns present in the data set. Matrix is subset into Gene, which represents the gene
+#to be aligned across the different ecotypes. 
+  for (i in 1:nrow(lrrs)){
+    
+    fas = paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/", lrrs[i,], "_Protein.fasta", sep = "")
+  seqs = readAAStringSet(fas)  #read fasta file and assign to variable
+   
+    
+    out = msa(seqs, method = "Muscle", type = "protein")     #run the alignment using default settings with alignment type set to desired type
+    
+   
+    
+    #write the file to a folder. Name represents whichever gene was aligned across the ecotypes
+    writeXStringSet(unmasked(out), file= paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/9_Ecotype_alignment_Muscle/", lrrs[i,], "_prot.fasta", sep = ""))
+    
+  }
+
+
+
+#Test
+   fas = paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/", lrrs[i,], "_Protein.fasta", sep = "")
+  seqs = readAAStringSet(fas)  #read fasta file and assign to variable
+   
+    
+    out = msa(seqs, method = "Muscle", type = "protein")     #run the alignment using default settings with alignment type set to desired type
+    
+   
+    
+    #write the file to a folder. Name represents whichever gene was aligned across the ecotypes
+    writeXStringSet(unmasked(out), file= paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/9_Ecotype_alignment_Muscle/", lrrs[i,], "_prot.fasta", sep = ""))
+```
+
+##Tree generation in a newick file. Note that the directory must be changed depending on the method being used. 
+
+```{r}
+
+directory = "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/174_1001genomes/182_Genomes_LRRs"
+
+
+for (i in 1:length(list.files(directory))){
+  
+  
+  #Read the string from the local file. Although there may be a way to pass it internally in R, this makes sure the
+  #output fasta file is the exact same as the one used here without any formatting issues
+  
+  fasta = readDNAStringSet(paste(directory, "/", list.files(directory)[i], sep = ""))
+  
+ 
+
+
+  #Adjusted = AdjustAlignment(testout)
+
+  d = DistanceMatrix(fasta)       #create distance matrix
+  
+  
+  #Create dendrogram and cluster
+  c = IdClusters(d, method = "NJ", cutoff = 0.05, showPlot = FALSE, myXStringSet = NULL, type="dendrogram")
+  
+  #write dendrogram as a newick file in wanted directory
+  WriteDendrogram(c, paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/174_1001genomes/Trees/", list.files(directory)[i], "_tree.nwk", sep = ""), quoteLabels = FALSE)
+  
+  
+  
+ 
+ 
+}
+
+
+
+
+directory = list.dirs("D:/Sequence_Data/Phylogenetics_Project/Aligned_FASTAs", recursive=FALSE)
+
+
+for (j in 1:length(directory)){
+  
+  files = list.files(directory[j])
+  output_directory = paste("D:/Sequence_Data/Phylogenetics_Project/Trees/DECIPHER_Trees/", basename(directory[j]), sep="")
+  
+  if (file.exists(output_directory)==FALSE){
+    dir.create(output_directory)
+  }
+  
+  
+  
+  for (i in 1:length(files)){
+  
+  
+    #Read the string from the local file. Although there may be a way to pass it internally in R, this makes sure the
+   #output fasta file is the exact same as the one used here without any formatting issues
+  
+   fasta = readAAStringSet(paste(directory[j], "/", files[i], sep = ""))
+  
+ 
+
+
+    #Adjusted = AdjustAlignment(testout)
+
+   d = DistanceMatrix(fasta, type="matrix", correction="Jukes-Cantor", verbose=FALSE)       #create distance matrix
+   
+   
+  
+  
+   #Create dendrogram and cluster
+   c = IdClusters(d, method = "ML", cutoff = 0.05, showPlot = FALSE, myXStringSet = fasta, type="dendrogram")
+  
+   #write dendrogram as a newick file in wanted directory
+   WriteDendrogram(c, paste(output_directory, "/", files[i], "_tree.nwk", sep = ""), quoteLabels = FALSE)
+  
+ 
+  
+ 
+ 
+  }
+}
+
+
+ #For a specific DNA file
+  #fasta = readDNAStringSet("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant #Data/Alignments/DECIPHER_Alignments/AT1G05700_comb_align.fasta")
+
+#for a specific protein alignment
+fasta = readAAStringSet("C:/Users/kileegza/Documents/HMMER/Arabidopsis_ecotypes/alignedtree.FASTA")
+  
+  
+  d = DistanceMatrix(fasta)       #create distance matrix
+  
+  
+  #Create dendrogram and cluster
+  c = IdClusters(d, method = "NJ", cutoff = 0.05, showPlot = FALSE, myXStringSet = Adjusted, type="dendrogram")
+  
+    WriteDendrogram(c, "C:/Users/kileegza/Documents/HMMER/Arabidopsis_ecotypes/DECIPHER_alignedtree.nwk", quoteLabels = FALSE)
+```
+
+## This section will take FUBAR outputs, and grab the which nucleotide position was under positive/negative selection and output it in a table
+## for ease of analysis
+```{r}
+
+#Generate variables to store positive or negative selection values
+fubar_neg = vector("list", 231)  #negative selection list
+fubar_pos = vector("list", 231)  #Positive selection list
+
+TM_Position = read.csv("C:/Users/kileegza/Documents/Non-Github analysis/TM_Locations_LRRs.csv", header=TRUE)
+
+
+
+
+
+
+#Get output matrix variable
+Outputlist = matrix(ncol = 2, nrow = 231) #create matrix to store values consiting of 2 columns and 231 rows 
+colnames(Outputlist) = c("Positive Sites", "Negative Sites")
+row.names(Outputlist) = lrrs$Gene.ID   #change row names of outputlist to correspond with that from the global variable file with gene names
+
+#Attempt to fix alignments using gblocks function
+ gblocktest =  read.fasta("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/AT1G05700.fasta")
+ 
+gblocks(gblocktest, b1 = 0.5, b2 = b1, b3 = ncol(x), b4 = 2, b5 = "a",
+  target = "alignment", exec)
+
+
+
+
+
+
+
+
+
+#iterate through genes, filter out positive and negative selection values based on posterior probability of >0.9, and output that result into
+#a csv file
+for (i in 1:nrow(lrrs)){
+  
+
+  #Get FUBAR output file
+  fubar =  read.csv(paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/FUBAR_csv/", lrrs[i,1], "_tree.nwk.fubar.csv", sep = ""), sep =
+                      ",", header = TRUE)
+  
+  
+  #Filter values so only those with probability >0.9 are output
+  fubar_filter_pos = filter(fubar, Prob.alpha.beta. > 0.9)
+  fubar_filter_neg = filter(fubar, Prob.alpha.beta..1 > 0.9)
+  
+  prot = read.fasta(paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/", lrrs[i,1], "Protein.fasta", sep = ""))
+  
+  
+  AA_Sites_pos = matrix(ncol = 2, nrow = nrow(fubar_filter_pos))
+  AA_Sites_neg = matrix(ncol = 2, nrow = nrow(fubar_filter_neg))
+ colnames(AA_Sites_pos) = c("Amino Acid", "Region")
+  colnames(AA_Sites_neg) = c("Amino Acid", "Region")
+ 
+  
+if (nrow(fubar_filter_pos) > 0){
+    
+    
+  for (j in 1:nrow(fubar_filter_pos)){
+    
+    
+ 
+    AA_Sites_pos[j,1] = substring(prot[8,2], fubar_filter_pos[j,1], fubar_filter_pos[j,1])
+    
+   
+    
+    
+    if (TM_Position[i,2] > 0){
+      if (as.numeric(fubar_filter_pos[j,1]) < as.numeric(TM_Position[i,2])){
+      AA_Sites_pos[j,2] = "Extracellular"
+    }
+     else if (as.numeric(fubar_filter_pos[j,1]) > (as.numeric(TM_Position[i,2]) + 20)){
+      AA_Sites_pos[j,2] = "Intracellular"
+    }
+      else {
+      AA_Sites_pos[j,2] = "Membrane"
+     }
+    }
+  }
+}
+ 
+if (nrow(fubar_filter_neg) > 0){
+   
+     for (j in 1:nrow(fubar_filter_neg)){
+    
+    
+ 
+      AA_Sites_neg[j,1] = substring(prot[8,2], fubar_filter_neg[j,1], fubar_filter_neg[j,1])
+      
+    if (TM_Position[i,2] > 0){
+    if (as.numeric(fubar_filter_neg[j,1]) < as.numeric(TM_Position[i,2])){
+    AA_Sites_neg[j,2] = "Extracellular"
+    }
+    else if (as.numeric(fubar_filter_neg[j,1]) > (as.numeric(TM_Position[i,2]) + 20)){
+      AA_Sites_neg[j,2] = "Intracellular"
+    }
+    else 
+      {
+      AA_Sites_neg[j,2] = "Membrane"
+      }
+    }
+   }
+}
+
+  
+  
+  #Sort from highest to lowest
+  fubar_order_pos =  arrange(fubar_filter_pos, desc(Prob.alpha.beta.))
+  fubar_order_neg =  arrange(fubar_filter_neg, desc(Prob.alpha.beta..1)) 
+
+
+  #write values of positive and negative selection into matrix
+  Outputlist[i,1] = nrow(fubar_order_pos)
+  Outputlist[i,2] = nrow(fubar_filter_neg)
+  
+  out_pos = cbind(fubar_filter_pos, AA_Sites_pos)
+  out_neg = cbind(fubar_filter_neg, AA_Sites_neg)
+  
+  
+  
+  #Write csv files containing the position of nucleotides under positive or negative selection for each gene alignment
+  
+ write.csv(out_pos, paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/FUBAR_csv/Positive/", lrrs[i,1], "_pos.csv", sep =
+                                      ""))
+
+  write.csv(out_neg, paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/FUBAR_csv/Negative/", lrrs[i,1], "_neg.csv", 
+                                    sep = ""))
+  
+  
+  #Add values to a list
+  fubar_pos[[i]] = fubar_order_pos
+  fubar_neg[[i]] = fubar_order_neg
+  
+  
+  
+
+  #Store values from before in a list
+  names(fubar_neg)[i] = as.character(lrrs[i,1])
+  names(fubar_pos)[i] = as.character(lrrs[i,1])
+
+  print(i)
+  
+}
+
+
+  
+
+
+  
+  
+
+
+#Write the csv file with positive and negative selection values
+ write.csv(Outputlist, "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/FUBAR_csv/Selection_Output.csv")
+
+#test stuff plz ignore
+
+ 
+
+i = 1
+test = read.csv(paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/9_Ecotype_alignment_Muscle/FUBAR_OUT/FUBAR_CSV_OUT/", lrrs[i,1], "_tree.nwk.fubar.csv", sep = ""), sep = ",", header = TRUE)
+
+test = read.csv("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/9_Ecotype_alignment_Muscle/FUBAR_OUT/FUBAR_CSV_OUT/AT1G05700_tree.nwk.fubar.csv", sep = ",", header = TRUE)
+
+test_filter = filter(test, Prob.alpha.beta. >0.1)
+
+test_order =  arrange(test_filter, desc(Prob.alpha.beta.))
+test_order = test_filter %>% arrange(desc(Prob.alpha.beta.))
+
+write.csv(test_order, "C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/9_Ecotype_alignment_Muscle/FUBAR_OUT/FUBAR_CSV_OUT/FUBAR_Positive/AT1G05700.csv")
+
+
+```
+
+#Tajima's neutrality test using pegas or strataG packages
+
+```{r}
+
+
+test = read.fasta()
+taj = tajima.test(gblocktest)
+
+#Create matrix to hold neutrality test results
+taj_val = matrix(nrow = nrow(lrrs), ncol = 2)
+colnames(taj_val) = c("D", "p.value")
+rownames(taj_val) = lrrs$Gene.ID
+
+
+
+#perform Tajima's neutrality test on wanted genes
+for(i in 1:1){
+  
+  
+  #Read fasta as a text file isntead of FASTA object
+   fasta = read.fasta(paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/", lrrs[i,], ".fasta", sep = ""))
+  
+  taj = tajimasD(fasta)  #Perform test
+  
+  #store in matrix
+  taj_val[i,] = taj
+  
+  taj1 = tajima.test(fasta)
+}
+
+taj = tajimasD(gblocktest)
+```
+
+```{r}
+
+library(PopGenome)
+
+PopGenome::diversity.stats()
+GENOME.class = readData("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/PopGenome Alignments")
+
+GENOME.class
+
+# GENOME.class <- readData("...\Alignments")
+GENOME.class <- F_ST.stats(GENOME.class,list(1:5,6:10))
+Bayes.input <- getBayes(GENOME.class)
+BAYES.class <- BayeScanR(Bayes.input)
+BAYES.class
+
+
+
+```
+
+
+
+
+
+
+
+
+##Convert FASTA files to phylip for usage in pamL and pamlx. this will put it into desired format
+```{r}
+
+
+#function meant to convert FASTA files to phyliyp for usage in paml or pamlx. Function requires input fasta file, output directory, and can convert
+#to sequential or interleaved format
+FastaToPhylip = function (fasta_in="", phylip_out = "", format = "sequential" )
+  {
+  
+  #Determine which to use based on desired formatting with sequential being the default
+  if(format == "interleaved")
+  {
+    
+  }
+  else if(format == "sequential")
+    {
+    
+  
+    fasta = read.fasta(fasta_in, clean_name = TRUE)    #input file, convert spaces and dashes to appropriate character
+
+
+
+    phylip_header = matrix(nrow = 1, ncol = 2)     #variable to reformat table header to same as fasta file
+    num_seqs = paste(nrow(fasta), " ", sep = "")   #find out number of sequences in fasta file
+    length = nchar(fasta[1,2])                     #get length of sequences in fasta file
+    name = paste(num_seqs, length, sep = "")       #get top phylip name component for phylip
+    phylip_header[1,1] = name                      #assign number of sequences and sequence length to header
+    phylip_header[1,2] = " "
+
+
+
+   colnames(phylip_header) = colnames(fasta)      #change column names to combine matrices
+
+    phylip = rbind(phylip_header, fasta)          #bind together name component with fasta file component
+
+
+    fileout = matrix(nrow=(nrow(fasta)+1), ncol=1)            #combine columns into one, then add a linebreak between sequence name and sequence
+
+    for(i in 1:(nrow(fasta)+1)){
+
+      if(i >1){
+       fileout[i,] = paste(phylip[i,1], phylip[i,2], sep = "\n")        #add linebreak to sequences, not header
+      }
+      else
+      {
+        fileout[i,] = paste(phylip[i,1], phylip[i,2], sep = "")
+      } 
+
+
+    }
+
+   write.table(fileout, phylip_out, row.names = FALSE, quote=FALSE, col.names = FALSE) #write phylip file to desired directory
+   
+  }
+  else{
+    stop(paste("String ", format, " is not a recognised format", sep = ""))   #if format is not recognised, 
+  }
+  
+}
+
+
+
+
+
+for (i in 1:nrow(lrrs)){
+  
+FastaToPhylip(paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/", lrrs[i,], ".fasta", sep = ""), paste("C:/Users/kileegza/Documents/PamL_analysis/PAML_alignments/Phylip/", lrrs[i,], ".phy", sep = ""))
+  
+  }
+
+
+  
+FastaToPhylip("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/DECIPHER_Alignments/AT1G05700_fuckalignments.fasta", "C:/Users/kileegza/Documents/PamL_analysis/PAML_alignments/Phylip/AT1G05700_falignments_phylip.phy")
+
+```
+
+
+
+##THis is for work in vegan to perform a rarefaction analysis or other
+
+#For this chunk to work properly, you need to have:
+
+##1. A folder containing the fasta files of your ecotypes/species/strains
+##2. A folder named "panPrep"
+##3. A folder names "Blast_Out" 
+
+##All you have to do the get this chunk to work is change the "directory" variable to the name of the folder where the above three things are stored
+
+```{r}
+
+
+#load requisite packages
+require(micropan)
+require(ggplot2)
+require(tidyr)
+
+
+#load in directory where fastas are, and get a list of the fasta files in this directory
+directory = "C:/Users/kileegza/Documents/microPan/FASTAs/NLRs_8_ecotype"    #-------------->Input directory where your fasta files are stored.
+
+fastas = list.files(directory, pattern = ".fasta")
+
+#genome_id = paste("GID", gsub("\\..*", "", fastas[i]), sep = ""
+
+#############################################################################
+
+#This part runs Micropan
+
+
+#Create directories for output. If they already exists, a warning will be shown but it can be ignored
+dir.create(paste(directory,"/panPrep", sep=""))
+dir.create(paste(directory,"/Blast_Out", sep=""))
+
+
+for (i in 1: length(fastas)){
+  
+  #Prepare fasta files for further usage in microPan. NOTE: this command inserts the genome_id in the out file name just before the extension
+  panPrep(in.file = paste(directory, "/", fastas[i], sep = ""), genome_id = paste("GID", i, sep = ""), out.file = paste(directory, "/panPrep/", "panPrep", tools::file_path_sans_ext(basename(fastas[i])), ".faa", sep = ""))
+}
+
+panPrep_prot_list = list.files(paste(directory, "/panPrep", sep=""), pattern = ".faa", full.names=TRUE)
+
+
+
+
+
+blastpAllAll(prot.files=panPrep_prot_list, out.folder=paste(directory, "/Blast_Out", sep=""), e.value = 0.01) 
+
+blastfiles = list.files(paste(directory, "/Blast_Out", sep=""), pattern=".txt", recursive=FALSE, full.names=TRUE)
+
+distance = bDist(blast.files = blastfiles, e.value = 0.01)
+
+clustered = bClust(distance, linkage = "complete")
+
+matrix = panMatrix(clustering = clustered)
+
+heaps_estimate = heaps(matrix, n.perm=1000)
+
+curve = rarefaction(matrix, n.perm = 100)  
+
+NLR_8_ecotype_fitted = binomixEstimate(matrix, K.range = 2:15)
+
+#ggplot(data = curve, mapping = aes(x = curve$Genome, y = curve$Perm1, group = Permutation))
+
+#The following code only works if posted directly into the console. I'm trying to find a way to use this in this chunk
+curve %>% gather(key = "Permutation", value = "Clusters", -Genome) %>% ggplot(aes(x = Genome, y = Clusters, group = Permutation)) +geom_line()
+
+
+
+tibble(Clusters = as.integer(table(factor(colSums(matrix > 0),
+                                          levels = 1:nrow(matrix)))),
+      Genomes = 1:nrow(matrix)) %>% 
+ggplot(aes(x = Genomes, y = Clusters)) +
+geom_col() + labs(title = "Number of clusters found in 1, 2,...,all genomes")
+
+
+
+
+ncomp <- 3
+fig4 <- fitted$Mix.tbl %>% 
+  filter(Components == ncomp) %>% 
+  ggplot() +
+  geom_col(aes(x = "", y = Mixing.proportion, fill = Detection.prob)) +
+  coord_polar(theta = "y") +
+  labs(x = "", y = "", title = "Pan-genome gene family distribution",
+       fill = "Detection\nprobability") +
+  scale_fill_gradientn(colors = c("pink", "orange", "green", "cyan", "blue"))
+print(fig4)
+
+
+fig5 <- fitted$Mix.tbl %>% 
+  filter(Components == ncomp) %>% 
+  mutate(Single = Mixing.proportion * Detection.prob) %>%
+  ggplot() +
+  geom_col(aes(x = "", y = Single, fill = Detection.prob)) +
+  coord_polar(theta = "y") +
+  labs(x = "", y = "", title = "Average genome gene-family distribution",
+       fill = "Detection\nprobability") +
+  scale_fill_gradientn(colors = c("pink", "orange", "green", "cyan", "blue"))
+print(fig5)
+
+
+d.man <- distManhattan(matrix)
+
+ggdendrogram(dendro_data(hclust(d.man, method = "average")),
+             rotate = TRUE, theme_dendro = FALSE) +
+  labs(x = "Genomes", y = "Manhattan distance", title = "Pan-genome dendrogram")
+
+###########################################################################################################  
+  
+test = panPrep("C:/Users/kileegza/Documents/Non-Github analysis/microPan/An_LRR_Protein.fasta", "AN_1", "C:/Users/kileegza/Documents/Non-Github analysis/microPan/An_LRR_Protein.fasta" )
+micropan::rarefaction()
+
+testfast = microseq::readFasta("C:/Users/kileegza/Documents/microPan/FASTAs/panPrep/panPrep_GID1.faa")
+
+
+findGenes("C:/Users/kileegza/Documents/Non-Github analysis/Genome Data/1001_pseudo_test.fa")
+
+ortholog_test=isOrtholog(clustered, distance)
+
+
+
+
+```
+
+
+##This chunk is meant to convert genomic sequences to CDS based on the known columbia sequences. Takes input of FASTA, creates a key based on he FASTA files found in the directory, and performs successive pairwise alignments (using muscle from the msa package). These are then all taken in the end and output as a CDS fasta file of the ecotypes for each gene.  
+
+```{r}
+
+
+require(stringi)
+require(msa)
+
+fasta_key = phylotools::read.fasta("C:/Users/kileegza/Documents/Non-Github analysis/Genome Data/Cleaned_Col_CDS_Names_only.fasta")
+
+fasta_key2 = phylotools::read.fasta
+
+
+
+
+#retrieve coding genes from Columbia CDS file based on those downloaded from 1001 genomes
+coding_genes = fasta_key[fasta_key$seq.name %in% tools::file_path_sans_ext(fasta_files),]
+
+coding_genes$seq.name = interaction(">",coding_genes$seq.name, sep = "")
+
+write.table(coding_genes, file = "C:/Users/kileegza/Documents/Non-Github analysis/Genome Data/Col_CDS_LRRRLK.fasta", sep = "\n", quote=FALSE, row.names=FALSE, col.names = FALSE)
+
+
+######################################################################################################################################
+
+#get files from directory to be converted to CDS
+fasta_files = list.files("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/Alignments/Aligned")
+
+#sequences = as.matrix(phylotools::read.fasta("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant #Data/1001_pseudogenomes_174strains_Edit.fasta"))
+
+for (j in 1:length(fasta_files)){
+  #for (j in 96:96){   #for debugging purposes
+  
+  print(paste("Converting genomic to CDS for ", fasta_files[j], sep = ""))
+  
+  sequences = as.matrix(phylotools::read.fasta(paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/Alignments/Aligned/", fasta_files[j], sep = "")))
+  
+    #Get positions of characters that are NOT a dash from the columbia CDS sequence. To be used for substring
+    sub_positions = gregexpr("[^-;]", sequences[175,2])
+    
+     #extract value present in key sequence from non-coding sequence to convert to coding sequence
+    #Loops over each element in the sequences list (from FASTA files to be converted)
+    #and extracts the non-dash ("-") characters, then stores them in the same position of sequences where they
+    #were extracted from. I.E. finds CDS sequence of gene from sequences, then replaces genomic version with CDS version
+     
+     for(l in 1:nrow(sequences)){
+         trimmed_seq = vector()  #create empty vector to store positional information 
+        sequences[l,2] = paste(trimmed_seq, sapply(1:length(sub_positions[[1]]), function(i){
+     
+           substring(sequences[l,2], sub_positions[[1]][i], sub_positions[[1]][i])
+      
+           }), sep = "", collapse = "")
+        }
+    
+   
+    
+  
+  
+  #out[1:174,1] = interaction(">", out[1:174,1], sep = "")
+  sequences[1:174,1] = mapply(paste,">", sequences[1:174], sep = "")
+  write.table(sequences[1:174,], file = paste("C:/Users/kileegza/Documents/Non-Github analysis/Ecotype Variant Data/Alignments/Non_aligned FASTAs/174_1001genomes/CDS/CDS_1001genomes_variants_", fasta_files[j], sep = ""), sep = "\n", quote=FALSE, row.names=FALSE, col.names = FALSE)
+  
+  #Remove FASTA files from sequences to help conserve RAM usage
+  rm(sequences)
+  
+  
+}
+
+
+
+```
+
+
+##Remove stop codons from end of files. Simple chunk literally takes in aligned FASTA files and spits out same fasta files without the last three nucleotides
+```{r}
+
+
+directory = "C:/Users/kileegza/Documents/HYPHY/182_Genomes_LRRs"
+fasta_list = list.files(directory, "*.fasta")
+
+for (i in 1:length(fasta_list)){
+  
+  fastas = as.matrix(phylotools::read.fasta(paste(directory, "/", fasta_list[i], sep = "")))
+  
+  
+  for (j in 1:nrow(fastas)){
+     
+        trimmed_seq = vector()
+       fastas[j,2] = paste(trimmed_seq, sapply(1:(nchar(fastas[j,2])/3), function(k){
+     
+           thing = substring(fastas[j,2], (k*3-2), k*3)
+           
+           if (thing == "TGA" | thing == "TAA" | thing == "TAG"){
+             
+             return("---")
+             
+           }
+           else{
+             
+             return(thing)
+           }
+      
+           }), sep = "", collapse = "")
+          
+           }
+ 
+  fastas[,1] = mapply(paste,">", fastas[,1], sep = "")
+  write.table(fastas, file = paste(directory, "/StopCodon_Cleaned/", tools::file_path_sans_ext(fasta_list[i]), "_cleaned.fasta", sep = ""), sep = "\n", quote=FALSE, row.names=FALSE, col.names = FALSE)
+  
+ 
+}
+
+```
+
+
+##Testing for copy number variation. Uses package vcfR, with input fasta file and vcf file (from bcftools)
+##Uses vcfR in order 
+
+```{r}
+library(vcfR)
+library(ape)
+library(ggplot2)
+library(dplyr)
+
+
+
+##########################################################################################################
+#Chunk here is to get potential copy number in each window
+
+
+CNV_List = list()
+
+vcf_dir= list.files("D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/TAIR10/PhaseII", pattern="*.vcf", recursive=FALSE, full.names=TRUE)
+
+
+for (i in 1:length(vcf_dir)){
+  
+
+
+vcf_in = read.vcfR(vcf_dir[i], verbose=FALSE)
+
+  gt= extract.gt(vcf_in)
+hets = is_het(gt)
+
+is.na(vcf_in@gt[,-1][!hets]) <- TRUE
+
+ad = extract.gt(vcf_in, element="AD")
+
+ad1 = masplit(ad, record=1)
+ad2 = masplit(ad, record=2)
+
+freq1 = ad1/(ad1+ad2)
+freq2 = ad2/(ad1+ad2)
+
+mypeaks1 = freq_peak(freq1, getPOS(vcf_in))
+
+rm(vcf_in)
+
+test = peak_to_ploid(mypeaks1)
+rm(mypeaks1)
+
+thingy = test$calls[complete.cases(test$calls),]
+
+CNV_List = c(CNV_List, thingy)
+  
+}
+
+################################################################################################################################
+
+vcf_dir= list.files("D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/TAIR10/PhaseII", pattern="*.vcf", recursive=FALSE, full.names=TRUE)
+vcf_in = read.vcfR(vcf_dir[1], verbose=FALSE)
+
+
+chrom = create.chromR(name = "supertest", vcf=vcf_in)
+
+plot(chrom)
+
+chrom = masker(chrom, min_QUAL=80, min_DP=0, max_DP=40, min_MQ=30, max_MQ=60.1)
+
+
+chrom = proc.chromR(chrom, verbose=TRUE)
+
+plot(chrom)
+
+chromoqc(chrom, dp.alpha=10)
+
+#extract.gt(vcf_in)
+
+
+gt= extract.gt(vcf_in)
+hets = is_het(gt)
+
+is.na(vcf_in@gt[,-1][!hets]) <- TRUE
+
+ad = extract.gt(vcf_in, element="AD")
+
+ad1 = masplit(ad, record=1)
+ad2 = masplit(ad, record=2)
+ad3 = masplit(ad, record=3)
+ad4 = masplit(ad, record=4)
+
+freq1 = ad1/(ad1+ad2)
+freq2 = ad2/(ad1+ad2)
+mypeaks1 = freq_peak(freq1, getPOS(vcf_in))
+is.na(mypeaks1$peaks[mypeaks1$counts < 20]) <- TRUE
+mypeaks2 = freq_peak(freq2, getPOS(vcf_in))
+is.na(mypeaks2$peaks[mypeaks2$counts < 20]) <- TRUE
+freq_peak_plot(pos=getPOS(vcf_in), ab1=freq1, ab2=freq2,fp1=mypeaks2, fp2=mypeaks2)
+
+
+ad_test1 = ad1/ad2
+
+test = peak_to_ploid(mypeaks1)
+thingy = test$calls[complete.cases(test$calls),]
+
+numalleles1 = ad1[complete.cases(ad1),]
+numalleles2 = ad2[complete.cases(ad2),]
+numalleles3 = ad3[complete.cases(ad3),]
+numalleles4 = ad4[complete.cases(ad4),]
+
+allele_ratioA = numalleles1/numalleles2
+rounded_AR_A = data.frame(round(allele_ratioA,0))
+colnames(rounded_AR_A) = "Ratio"
+filtered_AR_A = filter(rounded_AR_A, Ratio > 1)
+
+allele_ratioB = numalleles2/numalleles1
+
+
+
+
+getPOS(vcf_in)
+
+####### Attempt to plot and examine read depth
+dp = extract.gt(vcf_in, element="DP", as.numeric=TRUE)
+
+par(mar=c(12,4,4,2))
+boxplot(dp, col=2:8, las=3)
+title(ylab="Depth (DP)")
+
+library(reshape2)
+library(ggplot2)
+library(cowplot)
+
+dpf <- melt(dp, varnames=c('Index', 'Sample'), value.name = 'Depth', na.rm=TRUE)
+dpf <- dpf[ dpf$Depth > 0,]
+
+
+
+```
+
+##Copynumber variation testing from text files made in bcftools mpileup
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(bigmemory)
+
+
+Conversion = function(list){
+  return(as.character(regmatches(list, gregexpr(pattern="(?<=DP=)(.*?)[^;]*", text=list, perl=TRUE))))
+  
+}
+
+GetMode = function(values){
+  ux = unique(values)
+  ux[which.max(tabulate(match(values,ux)))]
+}
+
+
+
+input_files = list.files("D:/Analysis_Output/SAMTools_Output/Pileup_Analysis_Output", pattern="*.txt")
+
+input_lrr_list = list.files("D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200802_LRR_Pileup", pattern="*.txt")
+input_nlr_list = list.files("D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200729_NLR_Pileup", pattern="*.txt")
+
+for (file in 1:length(input_files)){
+#for (file in 3:3){
+  
+  
+  print(paste("Working on...",input_lrr_list[file]))
+#import samtools mpileup. Used to find mean, median, and mode of read depths
+
+
+input_sequence = read.delim(paste("D:/Analysis_Output/SAMTools_Output/Pileup_Analysis_Output/", input_files[file], sep=""), sep="\t", header=TRUE, quote="", stringsAsFactors=FALSE, encoding="UTF-8", skipNul=TRUE)
+
+#import mpileup 
+LRR_input = read.table(paste("D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200802_LRR_Pileup/", input_lrr_list[file],sep=""), sep="\t", header=FALSE, quote="",fill=FALSE)
+
+LRR_Regions = read.table("C:/Users/kileegza/Documents/BCFTools/LRR_regions.tsv", sep="\t")
+
+
+
+
+#get mode and median of the input sample mpileup. Uses base r median function and a made function to get mode. Column four of the input file 
+#represents the nucleotide count reads at that nucleotide. 
+sequence_mode = GetMode(input_sequence[,4])
+sequence_median = median(input_sequence[,4])
+sequence_mean = mean(input_sequence[,4])
+rm(input_sequence)
+
+LRRs_parsed= as.data.frame(cbind(LRR_input$V1, LRR_input$V2, matrix(unlist(lapply(LRR_input[,8], Conversion)), ncol=1, byrow=TRUE)))
+rm(LRR_input)
+
+
+LRRs_parsed = as.data.frame(LRRs_parsed)
+
+Chromosome = unique(LRRs_parsed$V1)
+
+Chromosomes = vector(mode="list", length = length(Chromosome))
+names(Chromosomes) = Chromosome
+
+
+#Loop iterates over each chromosome from the input pileup file
+#then subsets into data.frames for each chromosome
+#then for each chromosome, finds the nucleotides piling up across the 
+for (i in 1:length(Chromosome)){
+
+ temp_parsed = filter(LRRs_parsed, V1 == Chromosome[i])
+ temp_regions = filter(LRR_Regions, V1 == Chromosome[i])
+ gene_average = matrix(nrow=nrow(temp_regions),ncol=1)
+ 
+ #thingy = filter(temp_parsed, V2 == between(V2, temp_regions[i,2],temp_regions[i,3]))
+  for (j in 1:nrow(temp_regions)){ 
+    
+    
+    
+    thingy = temp_parsed %>% filter(V2 %in% (as.integer(temp_regions[j,2]):as.integer(temp_regions[j,3])))
+ 
+    gene_average[j,1] = mean(as.integer(thingy[,3]))
+    
+  
+  }
+ 
+ 
+ 
+ 
+ 
+
+ Chromosomes[[i]] = cbind(temp_regions, gene_average)
+  
+}
+
+
+  
+  CNV_estimate1 = round(Chromosomes$Chr1$gene_average/sequence_median)
+  CNV_estimate2 = round(Chromosomes$Chr2$gene_average/sequence_median)
+  CNV_estimate3 = round(Chromosomes$Chr3$gene_average/sequence_median)
+  CNV_estimate4 = round(Chromosomes$Chr4$gene_average/sequence_median)
+  CNV_estimate5 = round(Chromosomes$Chr5$gene_average/sequence_median)
+  
+ 
+ 
+ write.csv(c(CNV_estimate1, CNV_estimate2, CNV_estimate3, CNV_estimate4, CNV_estimate5), paste("D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200802_LRR_Pileup/CNV_Out/", input_lrr_list[file], "CNV_Out.csv",sep=""))
+  
+
+}
+
+
+#####################################################################################################################
+
+##FOR NLRs PREDICTION
+
+Conversion = function(list){
+  return(as.character(regmatches(list, gregexpr(pattern="(?<=DP=)(.*?)[^;]*", text=list, perl=TRUE))))
+  
+}
+
+GetMode = function(values){
+  ux = unique(values)
+  ux[which.max(tabulate(match(values,ux)))]
+}
+
+
+random 
+
+sample(1:10,1)
+
+GetPileupMedian = function(Pileup_File){
+  
+  Pileup_Rows = 100000
+  
+  while(Pileup_Rows == 100000){
+    
+   
+    
+    input_sequence = read.table(paste("D:/Analysis_Output/BCFTools_Output/Pileup/", input_files[file], sep=""), sep="\t", header=TRUE, nrows=100000, skip = (1000*row_skip))
+    
+    read_depth_temp = as.data.frame(matrix(unlist(lapply(input_sequence[,8], Conversion)), ncol=1, byrow=TRUE))
+    
+     row_skip = row_skip + 1
+  
+  Pileup_Rows = nrow(input_sequence)
+  
+  }
+  
+  return(mean(Pileup_Median[,1]))
+  
+}
+
+
+
+input_files = list.files("D:/Analysis_Output/BCFTools_Output/Pileup", pattern="*.txt")
+
+input_lrr_list = list.files("D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200802_LRR_Pileup", pattern="*.txt")
+input_nlr_list = list.files("D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200729_NLR_Pileup", pattern="*.txt")
+
+what = read.delim("D:/Analysis_Output/SAMTools_Output/Pileup_Analysis_Output/Ct_1_ct_phaseI.bam_Pileup.txt", header=TRUE, nrows=1000, sep="\t", skipNul = TRUE)
+
+
+#___________________________________________________________________________________________________________________
+#Function to predict copy number from read depth
+
+CNV_read_depth = function(Genome_Pileup_Dir, Gene_Pileup_Dir, Regions_File, Outdir, Chrom_num){
+  
+  require(parallel)
+  
+  input_files = list.files(Genome_Pileup_Dir, pattern="*.txt")
+  input_pileup_list = list.files(Gene_Pileup_Dir, pattern="*.txt")
+  
+  #Intialize function-wide summary matrix CNV_Summary. This is meant to hold predicted CNV for each file
+  CNV_Summary = matrix(ncol=2,nrow=length(input_files))
+  CNV_Summary[,1] = unlist(input_files)
+
+for (file in 1:length(input_files)){
+#for (file in 3:3){
+  
+  
+  #Initialize function-wide variables
+  
+  ########################
+  
+  sequence_info = read.delim(paste(Genome_Pileup_Dir, "/", input_files[file], sep=""), sep="\t", nrows=5, skip=4)
+
+  chrom_lengths = as.character(regmatches(sequence_info[,1], gregexpr(pattern="(?<=length=)(.*?)[^>]*", text=sequence_info[,1], perl=TRUE)))
+
+
+#The two following lines are meant to be used if you do not know the column where the read depth information is stored or the type of information stored in the column (integer, numeric, character, etc). If you do know,
+#you can the colClasses argument in read.table to match the columns you want to import. For example, the 8th column has the information we want,
+#so the 8th column will be given the class 'character' while the others will be given NULL. Read.table will skip any columns with type null. 
+
+#get_classes = read.table(paste(Genome_Pileup_Dir, "/", input_files[file], sep=""), sep="\t", header=FALSE, nrows=10, skip=0)
+
+#classes = sapply(get_classes, class)
+  
+  
+#import samtools mpileup. Used to find mean, median, and mode of read depths
+#thingy = matrix(ncol=10)
+
+#Initialize(reinitialize) matrix to store read depth median and mean for usage later on. Prevents memory wastage
+Summary_info = matrix(ncol=3, nrow=5)
+colnames(Summary_info) = c("Chromosome","Mean","Median")
+Summary_info[1:5,1] = c("Chr1", "Chr2", "Chr3", "Chr4", "Chr5")
+
+#import mpileup 
+pileup_input = read.table(paste(Gene_Pileup_Dir, "/", input_pileup_list[file],sep=""), sep="\t", header=FALSE, quote="",fill=FALSE)
+
+#Parse input pileup for only read depth. Uses function Conversion, which has a regex to pull out the number after 'DP='
+pileup_parsed= as.data.frame(cbind(pileup_input$V1, pileup_input$V2, matrix(unlist(lapply(pileup_input[,8], Conversion)), ncol=1, byrow=TRUE)))
+
+rm(pileup_input)
+
+
+#Inport regions file we want to examine. If genes are known, regions file should be the gene start and stop locations
+Gene_Regions = read.table(Regions_File, sep="\t")
+
+CNV_estimate = matrix(data=NA, ncol=2, nrow=0)
+
+
+
+
+#########################################
+
+#Tell user which file is being worked on currently
+print(paste("Working on...", input_pileup_list[file]))
+
+
+#Iterate over each chromosome in the sample. This is to reduce memory usage and running out of memory, as well as better predict results over chromosomes (different chromosomes may be biased by length). 
+
+  for (i in 1:Chrom_num){
+  
+ # classes = c("NULL","NULL","NULL","NULL","NULL","NULL","NULL","character","NULL","NULL")
+
+#We want to skip over lines so we don't read everything in, but we don't want to skip anything for the first chromosome. If it's the first chromosome, skip nothing. If it's the second onwards, skip lines equivalent to the length of the chromosomes. The number of rows to read in for each segment are equal to the chromosome length stored in the first 10 lines of the pileup file. 
+    if (i == 1){
+  input_sequence = read.table(paste("D:/Analysis_Output/BCFTools_Output/Pileup/", input_files[file], sep=""), sep="\t", header=FALSE, nrows=as.integer(chrom_lengths[i]), skip=0, colClasses=c("NULL","NULL","NULL","NULL","NULL","NULL","NULL","character","NULL","NULL"))
+    } else{
+  input_sequence = read.table(paste("D:/Analysis_Output/BCFTools_Output/Pileup/", input_files[file], sep=""), sep="\t", header=FALSE, nrows=as.integer(chrom_lengths[i]), skip=chrom_lengths[i-1], colClasses=c("NULL","NULL","NULL","NULL","NULL","NULL","NULL","character","NULL","NULL"))
+  
+    }
+  
+    
+    #Parse read depth from "DP" field, then find mean and median of the depth for each chromosome. 
+    cluster = makeCluster(8)
+    genome_pileup_parsed= matrix(unlist(parLapply(cl=cluster, X=input_sequence[,1], fun=Conversion)), ncol=1, byrow=TRUE)
+    stopCluster(cluster)
+    
+    Summary_info[i,3] = median(as.numeric(genome_pileup_parsed[,1]))
+    Summary_info[i,2] = mean(as.numeric(genome_pileup_parsed[,1]))
+
+  
+
+
+#clear large memory element we don't need
+  rm(input_sequence)
+  gc()
+  
+  
+  
+  
+  temp_parsed = pileup_parsed %>% filter(V1 == Summary_info[i,1])
+ temp_regions = Gene_Regions %>% filter(V2 == Summary_info[i,1])
+ gene_average = matrix(nrow=nrow(temp_regions),ncol=2)
+ gene_average[,1] = temp_regions$V1
+ 
+ #thingy = filter(temp_parsed, V2 == between(V2, temp_regions[i,2],temp_regions[i,3]))
+  for (j in 1:nrow(temp_regions)){ 
+    
+    
+    
+    thingy = temp_parsed %>% filter(V2 %in% (as.integer(temp_regions[j,3]):as.integer(temp_regions[j,4])))
+ 
+    gene_average[j,2] = mean(as.integer(thingy[,3]))
+    
+  
+  }
+ 
+ 
+ 
+ #grow matrix CNV_estimate with 
+ CNV_estimate = rbind (CNV_estimate, gene_average)
+
+  print(c("Chromosome", i))
+
+  }
+
+
+
+
+#Chromosome = unique(NLRs_parsed$V1)
+
+#Chromosomes = vector(mode="list", length = length(Chromosome))
+#names(Chromosomes) = Chromosome
+
+
+#Loop iterates over each chromosome from the input pileup file
+#then subsets into data.frames for each chromosome
+#then for each chromosome, finds the nucleotides piling up across the 
+
+
+ 
+
+# Chromosomes[[i]] = cbind(temp_regions, gene_average)
+  
+
+
+
+
+
+
+
+
+
+#get mode and median of the input sample mpileup. Uses base r median function and a made function to get mode. Column four of the input file 
+#represents the nucleotide count reads at that nucleotide. 
+#sequence_mode = GetMode(input_sequence[,4])
+#sequence_median = median(input_sequence[,4])
+#sequence_mean = mean(input_sequence[,4])
+#rm(input_sequence)
+
+#LRRs_parsed= as.data.frame(cbind(LRR_input$V1, LRR_input$V2, matrix(unlist(lapply(LRR_input[,8], Conversion)), ncol=1, byrow=TRUE)))
+#rm(LRR_input)
+
+
+
+
+#LRRs_parsed = as.data.frame(LRRs_parsed)
+#NLRs_parsed = as.data.frame(NLRs_parsed)
+
+#Chromosome = unique(LRRs_parsed$V1)
+
+
+
+  
+  #CNV_estimate1 = round(Chromosomes$Chr1$gene_average/Summary_info[i,3])
+  #CNV_estimate2 = round(Chromosomes$Chr2$gene_average/Summary_info[i,3])
+  #CNV_estimate3 = round(Chromosomes$Chr3$gene_average/Summary_info[i,3])
+  #CNV_estimate4 = round(Chromosomes$Chr4$gene_average/Summary_info[i,3])
+  #CNV_estimate5 = round(Chromosomes$Chr5$gene_average/Summary_info[i,3])
+  
+  copy_number = round(as.numeric(CNV_estimate[,2])/as.numeric(Summary_info[i,3]))
+  CNV_estimate = cbind(CNV_estimate, copy_number)
+  colnames(CNV_estimate) = c("Gene", "Average_Reads", "Copy_Number")
+  
+  CNV_estimate = as.data.frame(CNV_estimate[,1:3])
+  
+  CNV_filtered = CNV_estimate %>% filter(Copy_Number >1)
+  
+  CNV_Summary[file,2] = sum(as.numeric(CNV_filtered$Copy_Number)) - nrow(CNV_filtered)
+ 
+ write.csv(CNV_estimate, paste(Outdir, "/", tools::file_path_sans_ext(input_pileup_list[file]),".csv", sep=""), row.names=FALSE)
+ 
+  
+
+  }
+  
+  write.csv(CNV_Summary, paste(Outdir, "/CNV_Summary.csv", sep=""), col.names=TRUE, row.names=FALSE)
+  
+}
+  
+
+CNV_read_depth(Genome_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Pileup",Gene_Pileup_Dir="D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200729_NLR_Pileup", Regions_File="C:/Users/kileegza/Documents/BCFTools/NLR_Regions_WithGeneName.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200729_NLR_Pileup/CNV_Out", Chrom_num=5)
+
+
+
+input_files = list.files("D:/Analysis_Output/SAMTools_Output/Pileup_Analysis_Output", pattern="*.txt")
+
+input_lrr_list = list.files("D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200802_LRR_Pileup", pattern="*.txt")
+input_nlr_list = list.files("D:/Analysis_Output/BCFTools_Output/Read_Depth_Output/20200729_NLR_Pileup", pattern="*.txt")
+
+
+###########################################################################################################################
+
+
+
+#calculate mean, median, and mode of the input LRR mpileup. 
+lrr_median = as.numeric(median(lrr_depth_pos[1:nrow(LRR_input),3]))
+lrr_average = mean(as.numeric(lrr_depth_pos[1:nrow(LRR_input),3]))
+lrr_mode = GetMode(lrr_depth_pos[,3])
+
+
+
+cnv_calc = function(x, reference_mode, window_size){
+  
+  average_cnv = matrix(nrow=(nrow(x)/window_size), ncol=5)
+  
+  colnames(average_cnv)=c("Chromosome", "Window_end_BP","Read_Depth","CNV_estimate","CNV_Rounded")
+  
+  for (i in 1:(nrow(x)/window_size)){
+    
+    average_cnv[i,1] = x[(i*window_size), 1]
+    average_cnv[i,2] = as.integer(x[(i*window_size), 2])/100000
+    average_cnv[i,3] = mean(as.integer(x[(i*window_size-99):(i*window_size),3]))
+    average_cnv[i,4] = round(as.numeric(average_cnv[i,3]) / as.integer(reference_mode),1)
+    average_cnv[i,5] = round(as.numeric(average_cnv[i,4]),0)
+    
+    
+  }
+  
+  return(average_cnv)
+}
+
+windowed_vector = as.data.frame(cnv_calc(x=LRRs_parsed, reference_mode=sequence_mode, window_size = 1000))
+
+
+######################################################################################################
+
+
+
+sp_nr = ggplot(data=windowed_vector, mapping=aes(x=Window_end_BP,y=CNV_estimate),1) + geom_point(size=2, shape=10, aes(color=Chromosome)) + scale_y_discrete(breaks=c(0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10), labels=c("0","0.5","1","1.5","2","2.5","3","3.5","4","4.5","5","5.5","6","6.5","7","7.5","8","8.5","9","9.5","10")) + scale_x_discrete(breaks=c(0,50,100,150,200,250,300,350,400,450,500, labels=c('0','50','100','150','200','250','300','350','400','450','500'))) + geom_hline(yintercept=14, size=2, color="red") + theme_classic()
+
+
+#scale_x_discrete(breaks=c(0,50000,100000,150000,200000,250000,300000,350000,400000,450000,500000), #labels=c("0","50000","100000","150000","200000","250000","300000","350000","400000","450000","500000"))
+#+ geom_hline(yintercept=1.10, color="red", size = 5)
+#cnv_lrr = as.matrix((as.numeric(lrr_depth_pos[1:nrow(LRR_input),3]))/lrr_median)
+#cnv_input = as.matrix((as.numeric(lrr_depth_pos[1:nrow(LRR_input),3]))/sequence_median)
+
+sp_r = ggplot(data=windowed_vector, mapping=aes(x=Window_end_BP,y=CNV_Rounded)) + geom_point(size=2, shape=10, aes(color=Chromosome))  + scale_y_discrete(breaks=c(0,0.5,1,1.5,2,2.5,3,3.5,4,4.5,5), labels=c("0","0.5","1","1.5","2","2.5","3","3.5","4","4.5","5")) + theme_classic() 
+
+#thingy = cbind(lrr_depth_pos[,1], lrr_depth_pos[,2], rounded)
+
+
+
+filtered_thingy = windowed_vector %>% base::subset(windowed_vector[,5] > 1)
+
+count = sum(filtered > 2)
+
+dataframe_thingy = as.data.frame(thingy)
+
+hist(as.numeric(thingy[,3]), breaks = nrow(rounded)/100)
+
+bar_plot = ggplot(data=windowed_vector, mapping=aes(x=Window_end_BP,y=CNV_Rounded)) + geom_bar(stat="identity", aes(color=Chromosome)) + scale_x_discrete(breaks=levels(windowed_vector$Window_end_BP)[floor(seq(1,nlevels(windowed_vector$Window_end_BP), length.out=10))]) + theme_classic()
+
+ggsave("D:/Analysis_Output/Plots/20200713_CNV_Detection_LRRs/LRR_test_notrounded.png", plot = sp_nr)
+ggsave("D:/Analysis_Output/Plots/20200713_CNV_Detection_LRRs/LRR_test_rounded.png", plot = sp_r)
+ggsave("D:/Analysis_Output/Plots/20200713_CNV_Detection_LRRs/LRR_test_barplot.png", plot = bar_plot)
+
+```
+
+
+##Chunk estimates CNV by taking the allele frequency of variant sequences, finding the ratio, and determining if there is a greatly different ratio ##Takes input from BCFTools mpileup-->bcftools call --> .vcf file in
+##EXAPLANATION OF FUNCTION:
+##Takes the input of allele depth, parses it and divides the 'b-allele' (the second most commonly sequenced allele) by the 'a-allele' (most commonly sequenced allele). With this information, it then takes the output and maps it to the region where the gene is found. This result is then output. Sequence input is only taken when the Phred score (the -10log10(p-value)) is greater than 30 (meaning that there's a 1 in 1000 chance there's an error at that particular base). Strand bias is also taken into consideration where the score is <60 (may change over time). 
+
+```{r}
+
+library(stringr)
+require(dplyr)
+
+
+#Functions used in this chunk
+#####################################################################################
+
+Conversion = function(list){
+  return(as.character(regmatches(list, gregexpr(pattern="(?<=AD=)(.*?)[^;]*", text=list, perl=TRUE))))
+  
+}
+
+std_error = function(x){
+  return(sd(x) / sqrt(length(x)))
+}
+
+
+
+
+
+
+
+
+
+
+Allele_Depth_CNV = function(VCF_Directory, Regions_File, Outdir){
+  
+  
+  
+  
+#Get list of VCF files in given directory  
+VCF_Files = list.files(VCF_Directory, pattern="*.vcf")
+
+
+#Define global variables for summary output
+
+CNV_Summary_Out = matrix(nrow=length(VCF_Files),ncol=3)
+
+#Loops over each vcf file in the directory
+for (VCF in 1:length(VCF_Files)){   
+  
+  
+  #Import lists of .vcf files from folder
+
+print(c("Outputting",VCF_Files[VCF]))
+
+Input_VCF = read.table(paste(VCF_Directory, "/", VCF_Files[VCF],sep=""), sep="\t", quote="",fill=FALSE, header=FALSE)
+
+
+#Create local variables to be used for summary output
+CNV_Summary= matrix(ncol=8)
+
+#Import regions file (genes) for mapping
+Input_Regions = read.table(Regions_File, sep="\t")
+
+
+
+
+
+#Parse VCF 
+VCF_Parsed= as.data.frame(cbind(Input_VCF$V1, Input_VCF$V2, matrix(unlist(lapply(Input_VCF[,8], Conversion)), ncol=1, byrow=TRUE), Input_VCF$V6))
+
+
+
+allele_depth = cbind(VCF_Parsed$V1, VCF_Parsed$V2, as.data.frame(t(mapply(function(x,y) {
+  length(x) = y
+  return(x)
+}, strsplit(VCF_Parsed$V3, ","), 3))), VCF_Parsed$V4)
+
+
+
+colnames(allele_depth) = c("Chr", "Location", "Allele_A", "Allele_B", "Allele_C", "Phred_likelihood")
+
+filtered_ad = allele_depth %>% filter(Allele_A>=2 & Allele_B>=2 & (as.integer(Allele_A) + as.integer(Allele_B)) > 15 & as.integer(Phred_likelihood) > 30)
+
+
+b_allele_freq = matrix(nrow=nrow(filtered_ad),ncol=2) 
+colnames(b_allele_freq) = c("b_allele_frequency", "Gained_Copies")
+                
+if (dim(b_allele_freq)[1] > 0){
+
+  for (i in 1:nrow(b_allele_freq)){
+  
+    b_allele_freq[i,1] = min(as.numeric(filtered_ad[i,3:4]))/ (min(as.numeric(filtered_ad[i,3:4])) + max(as.numeric(filtered_ad[i,3:4])))
+    b_allele_freq[i,2] = (max(as.numeric(filtered_ad[i,3:4])) - min(as.numeric(filtered_ad[i,3:4])))/min(as.numeric(filtered_ad[i,3:4]))
+    
+    
+  
+  }
+}
+
+AD_b_freq = cbind(filtered_ad, b_allele_freq)
+
+#thingy = mapply(function(a,b) with ())
+
+#test = sum(LRR_Regions[2,2] < AD_b_freq[1,2] & AD_b_freq[1,2] < LRR_Regions[2,3])
+#test2 = sum(LRR_Regions[2,2] < AD_b_freq$Location & AD_b_freq$Location < LRR_Regions[2,3])
+
+#Create empty list based on input regions file
+Mappings = vector(mode="list", length=nrow(Input_Regions))
+names(Mappings) = Input_Regions$V1
+
+for (i in 1:length(Mappings)){
+  
+  temp = AD_b_freq %>% filter(Input_Regions[i,3] < Location & Location < Input_Regions[i,4])
+  
+  #temp = rbind(temp,colMeans(temp[sapply(temp, is.numeric)]))
+  
+  
+  
+  
+  
+
+  if (dim(temp)[1] > 0){
+    
+    averages = matrix(nrow=1, ncol=ncol(temp))
+    averages[1,1] = "Mean + std.err"
+    averages[1,2] = "-"
+    averages[1,3] = round(mean(as.numeric(temp$Allele_A)), digits=5)
+    averages[1,4] = round(mean(as.numeric(temp$Allele_B)), digits=5)
+    averages[1,5] = round(mean(as.numeric(temp$Allele_C)), digits=5)
+    averages[1,6] = "-"
+    averages[1,7] = paste(round(mean(as.numeric(temp$b_allele_frequency)), 5), " +/- ", round(std_error(temp$b_allele_frequency), digits=5),sep="")
+    averages[1,8] = paste(round(mean(as.numeric(temp$Gained_Copies)), 5), " +/- ", round(std_error(temp$Gained_Copies), digits=5),sep="")
+    
+    colnames(averages) = colnames(temp)
+     
+    Mappings[[i]] = rbind(temp, averages)
+    
+    CNV_Summary = rbind(CNV_Summary, averages)
+    
+  }
+  
+
+}
+
+
+#Remove empty element froms list
+Mappings[sapply(Mappings, is.null)] = NULL
+
+
+
+options(max.print=100000)
+
+#Output list of possible CNVs to a text file
+cat(capture.output(print(Mappings), file = paste(Outdir, "/CNV_", VCF_Files[VCF], ".txt", sep="")))
+
+if (length(Mappings) > 0){
+  #Get summary stats for output
+CNV_Summary_Out[VCF,1] = tools::file_path_sans_ext(VCF_Files[VCF])
+CNV_Summary_Out[VCF,2] = "-"
+CNV_Summary_Out[VCF,3] = sum(as.numeric(gsub("\\s.*","",CNV_Summary[2:nrow(CNV_Summary),8], perl=TRUE)))
+
+colnames(CNV_Summary_Out) = c("Input_File","placeholder", "Overall_Copy_Gain")
+}
+  
+
+  
+  }
+
+
+  
+#output summary stats
+write.table(CNV_Summary_Out,file=paste(Outdir,"/Summary.txt",sep=""), row.names=FALSE, quote=FALSE, sep=" ")
+
+print("Done!")
+
+}
+
+
+####################################################################################
+
+#Using function Allele_Depth_CNV for the LRRs
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR", Regions_File="C:/Users/kileegza/Documents/BCFTools/LRR_regions_WithGeneName.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/LRR/Allele_Balance_CNV_Out")
+
+#Using function Allele_Depth_CNV for the NLRs
+Allele_Depth_CNV(VCF_Directory="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/NLR", Regions_File="C:/Users/kileegza/Documents/BCFTools/NLR_regions_WithGeneName.tsv", Outdir="D:/Analysis_Output/BCFTools_Output/Variant_Call_Output/NLR/Allele_Balance_CNV_Out")
+
+
+
+
+#Working version not functionalized
+##############################################################################################################################
+
+
+ #Import lists of .vcf files from folder
+#input_lrr_vcf_list = list.files("D:/Analysis_Output/BCFTools_Output", pattern = "LRR_*.")
+#input_nlr_vcf_list = list.files("D:/Analysis_Output/BCFTools_Output", pattern = "NLR*.")
+
+#import VCF files
+#LRR_VCF_input = read.table(paste("D:/Analysis_Output/BCFTools_Output/", input_lrr_vcf_list[1],sep=""), sep="\t", header=FALSE, quote="",fill=FALSE)
+#NLR_VCF_input = read.table(paste("D:/Analysis_Output/BCFTools_Output/", input_nlr_vcf_list[1],sep=""), sep="\t", header=FALSE, quote="",fill=FALSE)
+Input_VCF = read.table(paste(VCF_Directory, "/", (list.files(VCF_Directory, pattern="*.vcf"))[VCF],sep=""), sep="\t", quote="",fill=FALSE, header=FALSE)
+
+
+
+#LRR_Regions = read.table("C:/Users/kileegza/Documents/BCFTools/LRR_regions_WithGeneName.tsv", sep="\t")
+#NLR_Regions = read.table("C:/Users/kileegza/Documents/BCFTools/20200729_NLR_Genes_ChrPos_Only.tsv", sep="\t")
+Input_regions = read.table(Regions_File, sep="\t")
+
+
+
+
+#LRRs_parsed= as.data.frame(cbind(LRR_VCF_input$V1, LRR_VCF_input$V2, matrix(unlist(lapply(LRR_VCF_input[,8], Conversion)), ncol=1, byrow=TRUE), LRR_VCF_input$V6))
+#NLRs_parsed= as.data.frame(cbind(NLR_VCF_input$V1, NLR_VCF_input$V2, matrix(unlist(lapply(NLR_VCF_input[,8], Conversion)), ncol=1, byrow=TRUE), NLR_VCF_input$V6))
+
+Input_parsed= as.data.frame(cbind(Input_VCF$V1, Input_VCF$V2, matrix(unlist(lapply(Input_VCF[,8], Conversion)), ncol=1, byrow=TRUE), Input_VCF$V6))
+
+
+
+allele_depth = cbind(LRRs_parsed$V1, LRRs_parsed$V2, as.data.frame(t(mapply(function(x,y) {
+  length(x) = y
+  return(x)
+}, strsplit(LRRs_parsed$V3, ","), 3))), LRRs_parsed$V4)
+
+allele_depth = cbind(NLRs_parsed$V1, NLRs_parsed$V2, as.data.frame(t(mapply(function(x,y) {
+  length(x) = y
+  return(x)
+}, strsplit(NLRs_parsed$V3, ","), 3))))
+
+colnames(allele_depth) = c("Chr", "Location", "Allele_A", "Allele_B", "Allele_C", "Phred_likelihood")
+
+filtered_ad = allele_depth %>% filter(Allele_A>0 & Allele_B>0 & (as.integer(Allele_A) + as.integer(Allele_B)) > 15 & as.integer(Phred_likelihood) > 30)
+
+
+b_allele_freq = matrix(nrow=nrow(filtered_ad),ncol=2)                
+                
+for (i in 1:nrow(filtered_ad)){
+  
+  
+  
+    
+    
+  b_allele_freq[i,1] = max(as.numeric(filtered_ad[i,3:4])) / min(as.numeric(filtered_ad[i,3:4]))
+ 
+  
+}
+
+AD_b_freq = cbind(filtered_ad, b_allele_freq)
+
+thingy = mapply(function(a,b) with ())
+
+test = sum(LRR_Regions[2,2] < AD_b_freq[1,2] & AD_b_freq[1,2] < LRR_Regions[2,3])
+test2 = sum(LRR_Regions[2,2] < AD_b_freq$Location & AD_b_freq$Location < LRR_Regions[2,3])
+
+
+Mappings = vector(mode="list", length=nrow(LRR_Regions))
+names(Mappings) = LRR_Regions$V1
+
+for (i in 1:length(Mappings)){
+  
+  temp = AD_b_freq %>% filter(LRR_Regions[i,3] < Location & Location < LRR_Regions[i,4])
+  
+  
+
+  if (dim(temp)[1] > 0){
+    Mappings[[i]] = temp
+    
+  }
+  
+  
+}
+
+
+
+Mappings[sapply(Mappings, is.null)] = NULL
+
+```
+
+
+```{r}
+library(phylotools)
+library(dplyr)
+
+main_dir = "D:/Sequence_Data/Phylogenetics_Project/Clustering"
+
+input_csv = read.csv(paste(main_dir,"/Family_separated_LRRs.csv",sep=""))
+
+input_files = list.files(main_dir, pattern="*.fasta")
+out_dir = "D:/Sequence_Data/Phylogenetics_Project/Clustering"
+
+for (fasta in 1:length(input_files)){
+  
+  print(c("File", input_files[fasta]))
+  
+  if (!dir.exists(paste(out_dir, "/", tools::file_path_sans_ext(input_files[fasta]), sep=""))){
+    dir.create(paste(out_dir, "/", tools::file_path_sans_ext(input_files[fasta]), sep=""))
+  }
+  
+ 
+  
+  test = paste(input_csv[,1:ncol(input_csv)])
+  
+   blah = gsub("\\.(.*)","", input_csv, perl=TRUE)
+  bleeh = gsub("\\_(.*)","", blah, perl=TRUE)
+  key = unique(bleeh)
+
+
+  
+thingy = read.fasta(paste(main_dir, "/Feb6_2021_LRR_KinaseDomOnly_withOutgroup_unaligned.fasta", sep=""))
+thingy2 = thingy
+
+blah = gsub("\\.(.*)","", thingy$seq.name, perl=TRUE)
+#blue = gsub("^.?([^_])","", blah, perl=TRUE)
+blue = gsub("_(.*)","", blah, perl=TRUE)
+bleeh = gsub("([0-9]{1})(.*)", "", blue, perl=TRUE)
+
+#thingy2$seq.name = bleeh
+key = unique(bleeh)
+
+#what = unlist(regmatches(thingy$seq.name, gregexpr(pattern=paste(key[i],"(.*)",sep=""), text=thingy$seq.name, perl=TRUE)))
+#who = unlist(what)
+
+ key = NULL
+for (i in 1:ncol(input_csv)){
+  blah = gsub("\\.(.*)","", input_csv[,i], perl=TRUE)
+  bleeh = gsub("\\_(.*)","", blah, perl=TRUE)
+  key = c(key, bleeh)
+} 
+ key = unique(key)
+
+family_counts = matrix(ncol=ncol(input_csv),nrow=length(key))
+rownames(family_counts) = key
+colnames(family_counts)=colnames(input_csv)
+
+#for (i in 1:length(key)){
+ # test = thingy %>% filter(seq.name %in% unlist(regmatches(thingy$seq.name, gregexpr(pattern=paste(key[i],"(.*)",sep=""), text=thingy$seq.name, #perl=TRUE))))
+  #test$seq.name = paste(">", test$seq.name, sep="")
+for (i in 1:ncol(input_csv)){
+  
+  
+  blah = gsub("\\.(.*)","", input_csv[,i], perl=TRUE)
+  blue = gsub("_(.*)","", blah, perl=TRUE)
+  family_members= gsub("([0-9]{1})(.*)", "", blue, perl=TRUE)
+  
+  
+  
+  for (j in 1:length(key)){
+    
+    family_counts[j,i]=length(grep(paste("^",key[j],"$",sep=""),family_members))
+    
+    
+  }
+}
+  
+
+  
+  write.table(family_counts, paste(out_dir, "/Mar9_2021_LRR_Family_Counts.txt", sep=""), sep="\t", quote=FALSE, col.names = NA, row.names=TRUE)
+  
+}
+
+
+
+
+#output fasta files for each family
+############################
+
+LRR_fasta_dir = "D:/Sequence_Data/Phylogenetics_Project/Input_FASTAs/Aquatic_Whole_Genes/Feb7_2021_LRR_Aquatic_Phytozome_Genes_CESA_Outgroup.fasta"
+
+LRR_species_fasta = as.data.frame(read.fasta(LRR_fasta_dir))
+
+main_dir = "D:/Sequence_Data/Phylogenetics_Project/Input_FASTAs/Aquatic_Genomes_Kinase_only"
+
+LRR_family_species_name = read.csv(paste(main_dir,"/Family_separated_LRRs.csv",sep=""))
+
+colnames(LRR_family_species_name) = gsub("\\.","_", colnames(LRR_family_species_name))
+
+
+output_parent_dir = "D:/Sequence_Data/Phylogenetics_Project/Input_FASTAs/Aquatic_Whole_Genes/LRR_Genes_Families/"
+
+for (i in 1:ncol(LRR_family_species_name)){
+  
+  
+
+  print(c("Outputting family", colnames(LRR_family_species_name[i])))
+  
+  if (!dir.exists(paste(output_parent_dir, colnames(LRR_family_species_name[i]), sep=""))){
+    dir.create(paste(output_parent_dir, colnames(LRR_family_species_name[i]), sep=""))
+  }
+  
+  outdir = paste(output_parent_dir, colnames(LRR_family_species_name[i]), "/", colnames(LRR_family_species_name[i]), "_unaligned.fasta", sep="")
+  
+  LRR_family_genes = LRR_species_fasta %>% filter(seq.name %in% LRR_family_species_name[,i])
+  LRR_family_genes$seq.name = paste(">", LRR_family_genes$seq.name, sep="")
+  
+  write.table(LRR_family_genes, outdir, sep="\n", quote=FALSE, col.names = FALSE, row.names=FALSE)
+  
+}
+
+
+
+
+```
+
+
+
+```{r}
+library(dplyr)
+
+random_list = read.csv("D:/Sequence_Data/A_Thaliana_Gene_List.csv")
+
+random_genes = sample(1:nrow(random_list),10000)
+
+random_genes = sort(random_genes)
+
+output_gene_list = random_list[random_genes,1]
+
+write.table(output_gene_list, "D:/Sequence_Data/Random_Gene_List.txt", sep="\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
+
+```
+
+
+```{r}
+
+#load required packages
+library(dplyr)
+library(ape)
+
+#get directories where unrooted trees are stored
+dir = list.dirs("D:/Sequence_Data/Phylogenetics_Project/Trees/Unrooted/20200801", recursive=FALSE)
+
+
+#for each directory, grab a list of the files inside and loop through them. Assign the name of the file in the directory to variable directory
+#Then, root the input folder and output it 
+for (directory in dir){
+  files = list.files(directory, recursive=FALSE)
+  
+  #The discern between the two folders notkinase and pkinase, use grep to search the folder name. If the name notkinase is present, the required outgroup to root by is used. If not, use the other outgroup root. 
+  if (length(grep("notkinase", directory)) > 0){
+    root_outgroup = "Human_TLR2"
+    
+  } else
+    {
+    root_outgroup = "AT1G18160_Pkinase_only"
+  }
+  
+  #loop over each file in the directory and root them
+  for (i in 1:length(files)){
+    
+    #read the unrooted newick file into memory
+    tree = as.phylo(read.tree(file=paste(directory, "/", files[i], sep="")))
+    
+    #Root the tree
+    tree_out = root(tree, outgroup=root_outgroup, resolve.root=TRUE)
+    
+    #output the rooted tree
+    write.tree(tree_out, paste("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/20200815/", gsub(".*/2020", "2020",directory),"/",files[i],sep=""))
+  }
+}
+
+ files = list.files("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/20200815/20200802_LRR_notkinase_domain")
+ 
+for (i in 1:length(files)){
+  
+  tree_pkinase = as.phylo(read.tree(file=paste("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/20200815/20200801_LRR_pkinase_domains", "/", files[i], sep="")))
+  
+  
+  tree_notkinase = as.phylo(read.tree(file=paste("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/20200815/20200802_LRR_notkinase_domain", "/", files[i], sep="")))
+ 
+  thingy = comparePhylo(tree_pkinase, tree_notkinase, plot=TRUE)
+  thingy2 = all.equal.phylo(tree_pkinase, tree_notkinase)
+}
+
+```
+
+
+
+
+```{r}
+
+test = read.table("D:/Sequence_Data/Phylogenetics_Project/Input_FASTAs/Aquatic_Genomes/GCA_009812395.1_DU_Znig_v1_genomic.gbff")
+
+
+
+```
+      
+
+
+
+
+
+
+
+
+
+
+
+
+
+

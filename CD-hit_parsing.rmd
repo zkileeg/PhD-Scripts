@@ -1,0 +1,82 @@
+---
+title: "Cd-hit parsing"
+output: html_document
+---
+
+##CD-hit parsing
+```{r}
+
+library(dplyr)
+library(phylotools)
+
+genome = "Nd1"
+
+input_cds = read.fasta(paste("D:/Analysis_Output/CDHIT/", genome, ".protein-coding.genes.v2.5.CDS.fasta", sep=""))
+input = read.table("D:/Analysis_Output/CDHIT/Nd1_CDHIT_An1ColC24CviEriKyoLerSha_Combined.clstr", header=FALSE, sep=" ", fill=TRUE, col.names=c("Entry_Number", "SeqName", "Filler", "MatchPercentage"))
+
+input$MatchPercentage = gsub("\\+/", "",input$MatchPercentage)
+input$MatchPercentage = gsub("-/", "",input$MatchPercentage)
+input$MatchPercentage = as.numeric(gsub("%", "",input$MatchPercentage))
+
+input$SeqName = gsub(">","",input$SeqName, perl=TRUE)
+input$SeqName = gsub("\\.\\.\\.","",input$SeqName, perl=TRUE)
+
+
+header_lines = grep(">", input$Entry_Number)
+
+#potential_cnv_list = data.frame()
+potential_cnv_list = vector()
+for(i in 1:length(header_lines)){
+  if (i == length(header_lines)){
+    print("tryue")
+    holding_dataframe = input[header_lines[i]:nrow(input),]
+    
+  } else{
+    
+  holding_dataframe = input[(header_lines[i]):(header_lines[i+1]-1),]
+  holding_dataframe = holding_dataframe[-c(1:2),]
+  #holding_dataframe[2,4] = 100
+  
+  
+  
+  if (nrow(holding_dataframe) > 1 ){
+    print("TRUE")
+    
+    
+    
+    non_best_hit = holding_dataframe[-c(which.max(holding_dataframe$MatchPercentage)),]
+  
+    potential_cnv_list = c(potential_cnv_list, non_best_hit[,2])
+   # potential_cnv_list = rbind(potential_cnv_list, non_best_hit[,2])
+    
+   }
+  } 
+}
+
+#input_test = read.fasta("D:/Analysis_Output/CDHIT/An1_Col_CDHIT_Test.clstr")
+
+cnvs_cds = input_cds %>% filter(seq.name %in% potential_cnv_list)
+cnvs_cds$seq.name = paste(">",cnvs_cds$seq.name, sep="")
+
+write.table(cnvs_cds, paste("D:/Analysis_Output/CDHIT/", genome, "_CD-hit_CNVs.fasta", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+
+```
+
+##Take as input combined gene sequences and CDS output to create hybrid "genome" file
+```{r}
+
+library(phylotools)
+library(dplyr)
+
+cds_in = read.fasta("D:/Analysis_Output/CDHIT/Col_An1_C24_Cvi_Eri_Kyo_Ler_Sha_Nd1_CDS_Combined.fasta")
+gene_seqs = read.fasta("D:/Analysis_Output/CDHIT/Gene_Sequences/2021_9Ecotype_CombinedGeneSequences.fasta")
+
+non_redundant_genes = gene_seqs %>% filter(seq.name %in% cds_in$seq.name)
+
+non_redundant_genes$seq.name = paste(">", non_redundant_genes$seq.name, sep="")
+
+write.table(non_redundant_genes, "D:/Analysis_Output/CDHIT/Gene_Sequences/2021_Oct6_Nonredundant_9Ecotype_HybridGeneSeqs.fasta", col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+
+
+
+```

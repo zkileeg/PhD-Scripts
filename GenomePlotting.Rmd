@@ -1,0 +1,20 @@
+
+
+###Genome plotting using circos
+```{r}
+
+library(BioCircos)
+
+#what I learned in boating school is
+
+
+
+my_genome=list("Chr1"=30631540, 
+            "Chr2"=20021620,
+            "Chr3"=23022188,
+            "Chr4"=19282028,
+            "Chr5"=26252739)
+
+BioCircos(genome=my_genome)
+
+```

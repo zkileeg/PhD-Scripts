@@ -1,0 +1,92 @@
+---
+title: "GFF_Tools"
+output: html_document
+date: "2024-04-11"
+---
+
+```{r}
+
+library(dplyr)
+library(stringr)
+
+directory = "D:/Analysis_Output/Bedtools_overlap/"
+gff_files = list.files(directory, pattern="*.gff$", full.names = TRUE)
+#set locus tag
+locus_tag_prefix="ATAbd0"
+
+#read gff file in
+gff_in=read.table(gff_files[i])
+
+if (grepl("OX", toupper(gff_in[1,1]))){
+  
+  chromosome_names = unique(gff_in$V1)
+  
+  for (chrom in 1:length(chromosome_names)){
+    
+  gff_in$V1 =  str_replace(gff_in$V1, chromosome_names[chrom], paste("Chr", chrom, sep="") )
+    
+  }
+}
+
+#get only main chromosomes
+gff_filtered = gff_in %>% filter(grepl("Chr[0-9]+", V1))
+
+#find number of chromosomes
+num_chr = as.numeric(max(gsub("Chr","",gff_filtered$V1)))
+
+
+
+holding_dataframe=data.frame()
+for (i in 1:num_chr){
+  
+   # i = chromosome number
+  
+    gff_subset=gff_filtered %>% filter(V1==paste("Chr",i,sep=""))
+    gene_subset = gff_subset %>% filter (V3=="gene") 
+    
+    print(paste("Chromosome",i,sep=""))
+    
+    for (j in 1:nrow(gene_subset)){
+      
+      #j = row of subset by chromosome
+      #print(j)
+      
+      #loop over genes, so get gene information to subset
+      current_gene = gene_subset[j,]
+      current_gene[1,9] = gsub(".*",paste("ID=",locus_tag_prefix,"-",i,"G",10000+j*10,";Name=",locus_tag_prefix,"-",i,"G",10000+j*10,sep=""),current_gene[1,9], perl=TRUE)
+      
+      #fix mRNA code
+      mRNA=gff_subset %>% filter(V4>=current_gene$V4 & V5 <=current_gene$V5 & V3 == "mRNA")
+      mRNA[1,9]= gsub(".*",paste("ID=",locus_tag_prefix,"-",i,"G",10000+j*10,".1;Parent=",locus_tag_prefix,"-",i,"G",10000+j*10,sep=""),mRNA[1,9], perl=TRUE)
+      
+      #get a subset of exons and cds to loop over so we can assign exon/cds number
+      exon_subset = gff_subset %>% filter(V4>=current_gene$V4 & V5 <=current_gene$V5 & V3 == "exon")
+      cds_subset = gff_subset %>% filter(V4>=current_gene$V4 & V5 <=current_gene$V5 & V3 == "CDS")
+      
+      #make subset in case stuff screwes up
+      exon_temp = exon_subset
+       cds_temp = cds_subset
+       
+       #loop over number of exons for this gene
+      for (k in 1:nrow(exon_subset)){
+        
+        #k=exon/cds number
+        
+        exon_temp[k,9] = gsub(".*",paste("ID=",locus_tag_prefix,"-",i,"G",10000+j*10,":exon:",k,";Parent=",locus_tag_prefix,"-",i,"G",10000+j*10,".1",sep=""),exon_subset[k,09], perl=TRUE)
+        
+     
+         cds_temp[k,9] = gsub(".*",paste("ID=",locus_tag_prefix,"-",i,"G",10000+j*10,":CDS:",k,";Parent=",locus_tag_prefix,"-",i,"G",10000+j*10,".1",sep=""),cds_subset[k,09], perl=TRUE)
+        
+      } #end of k
+       
+       #collect all the filtered stuff
+       holding_dataframe=rbind(holding_dataframe,current_gene,mRNA,exon_temp,cds_temp)
+    }  #end of j 
+  
+}  #end of i
+
+
+sorted_gff = holding_dataframe[order(holding_dataframe$V1,holding_dataframe$V4),]
+
+
+```

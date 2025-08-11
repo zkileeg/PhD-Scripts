@@ -1,0 +1,521 @@
+---
+title: "Blast_Text_Tools"
+author: "Zachary Kileeg"
+date: "11/16/2020"
+output: html_document
+---
+
+
+#Takes as input list from BlastP and finds common elements between lists
+
+```{r}
+
+library(dplyr)
+
+input_files = list.files("C:/Users/kileegza/Documents/Blast/Blast_In/BWAMEM_Aligned", pattern=".*Araport11.*.txt", recursive=TRUE, full.names=TRUE)
+
+#LRRs_from_hmmer = read.csv("C:/Users/kileegza/Documents/HMMER/HMMSEARCH_Outputs/Denovo_Prediction/ColOut.csv")
+#LRRs_from_hmmer = LRRs_from_hmmer[,4]
+LRRs_from_hmmer = as.matrix(read.table("C:/Users/kileegza/Documents/LRRsList.txt", quote=""))
+#LRRs_from_hmmer = LRRs_from_hmmer[,4]
+
+matched_proteins = vector(mode="list", length=length(input_files))
+names(matched_proteins) = tools::file_path_sans_ext(basename(input_files))
+
+for (i in 1:length(input_files)){
+  
+  
+  blast_matches = read.csv(input_files[i])
+  blast_matches$sseqid = substring(blast_matches$sseqid,1,9)
+  
+  filtered_matches = blast_matches %>% filter(pident >=40)
+  
+  #matched_proteins = unique(filtered_matches,
+  
+ # multiple_query = filtered_matches[duplicated(filtered_matches$qseqid),]
+  #multiple_match = filtered_matches[duplicated(filtered_matches$sseqid),]
+  #one = setdiff(unique(multiple_match), )
+  
+ 
+  
+  LRR_matches = filtered_matches %>% filter(sseqid %in% LRRs_from_hmmer)
+  LRR_multi_matches = multiple_match %>% filter(sseqid %in% LRRs_from_hmmer)
+  LRR_multi_query = multiple_query %>% filter(sseqid %in% LRRs_from_hmmer)
+  
+  
+  
+  
+  #multi = filtered_matches %>% filter(qseqid %in% unique(LRR_multi_query$qseqid))
+  
+  unique_matches = unique(LRR_matches$sseqid)
+  
+  matched_proteins[[i]] = unique_matches
+  
+  
+}
+
+
+
+thing = lapply(matched_proteins, 'length<-', max(lengths(matched_proteins)))
+  
+  #put columns together into matrix, and column names
+output = do.call(cbind, thing)
+#colnames(output) = c()
+
+write.csv(output, "C:/Users/kileegza/Documents/Blast/Blast_In/BWAMEM_Aligned/Seven_Ecotype_BWAMEM_Mapped_LRRs.csv", row.names=FALSE)
+
+
+
+
+```
+
+
+###Chunk gets pairwise percent similarity across a given group
+```{r}
+
+
+#trying to see if the group 1 clade is similar enough to the group 2 clade to merge them.
+#which means, make sure group 2 is the "main clade" we're trying to merge the new clade into
+#so check to see if we can merge 1 into 2 by comparing 1 to 2
+
+library(dplyr)
+
+blast_allvsall_in = as.data.frame(read.table("D:/Sequence_Data/Phylogenetics_Project/Blast/Output_Genomes/2021_July12_I.1_113Species_Kinases_LRRs_allvsall.txt"))
+#blast_allvsall_in = as.data.frame(read.table("D:/Sequence_Data/Phylogenetics_Project/Blast/Output_Genomes/2021_July11_I.1_113Species_FullLengthLRRs_allvsall.txt"))
+
+#groups must have a 
+#group_names_in=as.data.frame(read.table("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/JulyTree_Group2.txt"))
+group_1_in = as.data.frame(read.table("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/JulyTree_Group1.txt", sep="\n"))    #group we want to test
+group_2_in = as.data.frame(read.table("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/JulyTree_Group2.txt", sep="\n"))     #group we're testing against. 
+
+#group_1_in = read.table("D:/Sequence_Data/Phylogenetics_Project/Trees/Rooted/JulyTree_Group1.txt") 
+
+#replace all spaces with underscores. 
+
+group_1_in$V1 = gsub("\\s", "_", group_1_in$V1, perl=TRUE)
+group_2_in$V1 = gsub("\\s", "_", group_2_in$V1, perl=TRUE)
+
+
+
+#essentially we're going through each gene in each test group and comparing it against the 
+avg_pairwise_groups = matrix(nrow=nrow(group_1_in), ncol=2)
+avg_pairwise_groups[,1] = group_1_in$V1
+
+for (i in 1:nrow(group_1_in)){
+  
+  gene_to_test = group_1_in[i,1]
+  
+  #filter for genes that match gene single gene we're looking at and test group
+  single_gene_subgroup = blast_allvsall_in %>% filter((V1 == gene_to_test & V2 %in% group_2_in$V1) |  (V2 == gene_to_test & V1 %in% group_2_in$V1))
+  
+  #single_gene_subgroup = blast_allvsall_in %>% filter((V1==gene_to_test | V2 == gene_to_test)) 
+  
+  avg_pairwise_groups[i,2] = mean(single_gene_subgroup$V3)
+  
+}
+
+#avg_pairwise_groups = avg_pairwise_groups[,2 != "NaN"]
+#find if the number in the second column is not a number
+avg_pairwise_groups = as.data.frame(avg_pairwise_groups)
+avg_pairwise_groups =  avg_pairwise_groups %>% filter(V2 != "NaN")
+
+
+if (nrow(avg_pairwise_groups) > 1) 
+  {
+  avg_pairwise_test = mean(as.numeric(avg_pairwise_groups[,2]))
+} else
+  { 
+  avg_pairwise_test = as.numeric(avg_pairwise_groups[,2])
+  }
+
+min_similarity = min(as.numeric(avg_pairwise_groups[,2]))
+
+
+#group_subset = blast_allvsall_in %>% filter((V1 %in% group_names_in$V1 | V2 %in% group_names_in$V1) & (V1 %in% group_names_in$V1 | V2 %in% group_names_in$V1))
+#group_subset = blast_allvsall_in %>% filter()
+
+
+
+#avg_pairwise_similarity = mean(group_subset$V3)
+
+avg_pairwise_singlegene = mean(single_gene_subgroup$V3)
+  
+  
+```
+
+###chunk takes all by all blast and determines primary OG groupings starting with single copy genes as base
+```{r}
+
+
+SplitOGs = function(blast_filein, OG_name, outfolder){
+  
+  ####for troubleshooting
+  #blast_filein = paste(blastfolder, bfile, sep="")
+  #OG_name = "N0.HOG0000000"
+# outfolder = "D:/Analysis_Output/Orthogroup_Assignment/Sep2024/Kinases/Orthofinder_out/Split_HOGs/To_Split/Blast_Refinement/N0.HOG0001157_allbyall"
+ #
+  #OG_name = gsub("\\.blast","",bfile)
+  #print(OGname)
+ #outfolder = paste("D:/Analysis_Output/Orthogroup_Assignment/Sep2024/Kinases/Orthofinder_out/Results_Dec9/Refinement/Split/", OGname, sep="")
+
+  require(tidyverse)
+  
+  #If someone doesn't type in the correct path aka misses a /, then just fix path
+  if (str_sub(outfolder, start=-1) != "/"){
+    outfolder = paste(outfolder, "/", sep="")
+  }
+  
+#create output directory
+dir.create(outfolder, showWarnings = FALSE)
+
+#get our blast file in
+blast_file_in = read.table(blast_filein)
+#rename columns with balst outfmt 6 default names
+colnames(blast_file_in) = c('qseqid', 'sseqid', 'pident', 'length', 'mismatch', 'gapopen', 'qstart', 'qend', 'sstart', 'send', 'evalue', 'bitscore')
+
+
+#get the total non-redundant list of genes
+OG_genes = unique(blast_file_in$qseqid)
+
+counter=1   #set counter for OG numbers
+flag = 0    #set our while loop flag
+
+#while there are still multiple groups, split the OGs
+while (flag == 0 ){
+
+  #first thing we'll get a list of ecotypes assuming ecotype/species name is separated from gene name by a |
+ecotypes = gsub("\\|.*","",OG_genes, perl=TRUE)
+#get single copy genes - i.e. ones that are not duplicated in this round
+single_copy = ecotypes[!(duplicated(ecotypes) | duplicated(ecotypes, fromLast=TRUE))]
+#get ecotypes that have more than one gene in this cluster
+multi_copy = unique(ecotypes[duplicated(ecotypes)])
+
+
+
+
+#if we've reached a point where we're out multicopy genes, don't continue. Otherwise, continue 
+if (length(multi_copy) < 1 | length(single_copy) == 0) {
+  
+  flag = 1
+  
+  #nested insdie here also catch cases to catch the remainders and output them. This happens when single copy 
+  if (length(single_copy) == 1){
+    
+    singlecopy_blast = blast_file_in %>% filter(grepl(paste("^",single_copy, collapse="|", sep=""), qseqid, perl=TRUE))
+  
+    write.table(unique(singlecopy_blast$qseqid), paste(outfolder, OG_name, "_", counter, ".txt", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+    
+    
+    
+  #If there are still multicopy remaining but no single copy, then output them. 
+  } 
+  
+  if (length(single_copy) == 0 & length(multi_copy) > 0 ) {
+    
+    
+      for (mc_gene in OG_genes) {
+        
+        #multicopy_blast = blast_file_in %>% filter(grepl(paste("^", multi_copy, collapse="|", sep=""), qseqid, perl=TRUE) & (sseqid %in% singlecopy_blast$qseqid))
+        multicopy_blast = blast_file_in %>% filter((qseqid == mc_gene ) & (sseqid %in% singlecopy_blast$qseqid))
+      
+        write.table(unique(multicopy_blast$qseqid), paste(outfolder, OG_name, "_", counter, ".txt", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+        
+        counter = counter + 1
+      
+      }
+  }
+  
+} else {
+
+  #now so the actual stuff
+  
+  # get the blast all by all info for the single copy genes in thsi cluseter
+singlecopy_blast = blast_file_in %>% filter(grepl(paste("^",single_copy, collapse="|", sep=""), qseqid, perl=TRUE))
+
+#get the duplicated genes from this cluster all by all blast info
+multicopy_blast = blast_file_in %>% filter(grepl(paste("^", multi_copy, collapse="|", sep=""), qseqid, perl=TRUE) & (sseqid %in% singlecopy_blast$qseqid))
+
+#get the duplicated genes
+duplicated_genes = unique(multicopy_blast$qseqid)
+
+#we're gonna try two ways to do this. First is to find which of the pairs is, on average, more similar to the single copies. 
+
+#the second is we're going to create x groups and figure out which one, on average, has the highest similarity across them. 
+
+genes_to_add = vector(mode = "character")    #set holding vector
+
+#for each ecotype in the multicopy, figure out which one has the highest average similarity to the single copy genes
+for (i in 1:length(multi_copy)){
+  
+    #print("line 187") 
+  #find which duplicates to compare
+  duplicates_to_compare = duplicated_genes[grepl(multi_copy[i],duplicated_genes)]
+  
+  #set the average score holding matrix and fill it with the duplicates to compare number
+  average_score = matrix(nrow=length(duplicates_to_compare), ncol=2)
+  average_score[,1] = duplicates_to_compare
+  
+  #for each row, calculate the average percent identify and put that in the average score
+  for (j in 1:nrow(average_score)){
+    
+    single_gene_temp_blast = multicopy_blast %>% filter(qseqid == duplicates_to_compare[j])
+    
+    average_score[j,2] = mean(single_gene_temp_blast$pident)
+    
+    
+    
+  }
+  #add the highest percent identity gene to a list of genes to add to our cluster for output
+  genes_to_add = c(genes_to_add, average_score[order(as.numeric(average_score[,2]), decreasing=TRUE),1][1])
+  
+}
+  #add genes to add to our single copy genes and then sort it A-Z
+  holding_data_frame = data.frame(c(unique(singlecopy_blast$qseqid), genes_to_add))
+  holding_data_frame[,1] = holding_data_frame[order(holding_data_frame[,1]),]
+  
+  #write output
+  write.table(unique(holding_data_frame), paste(outfolder, OG_name, "_", counter, ".txt", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+  #find difference between the cluster we just output and the remaining duplicates
+  OG_genes = setdiff(duplicated_genes, holding_data_frame[,1])
+  
+  blast_file_in = blast_file_in %>% filter(qseqid %in% OG_genes)
+  
+  #if (length(OG_genes) <=1){
+   # flag = 1
+    
+  
+  #}
+  
+  counter = counter + 1
+
+  }
+}
+
+
+} #function end
+
+```
+
+
+
+
+###chunk takes all by all blast and determines primary OG groupings by checking combinations of them all#####
+
+####THIS ONE WORKS BUT DOESN"T GIVE WANTED RESULTS. USE ONE ABOVE
+```{r}
+
+
+SplitOGs_grouped = function(blast_filein, OG_name, outfolder){
+  
+  ####for troubleshooting
+  #blast_filein = "D:/Analysis_Output/Blast/146_Ecotypes/HOG_Refinement/OG0000044_N0.HOG0000102.blast.blast"
+  #OG_name = "OG0000044_N0.HOG0000102"
+  #outfolder = "D:/Analysis_Output/Orthogroup_Assignment/Sep2024/Kinases/Orthofinder_out/OG_Refinement/OG0000044_N0.HOG0000102/Blast_Refinement/"
+
+  require(tidyverse)
+  
+  
+#create output directory
+dir.create(outfolder, showWarnings = FALSE)
+
+#get our blast file in
+blast_file_in = read.table(blast_filein)
+#rename columns with balst outfmt 6 default names
+colnames(blast_file_in) = c('qseqid', 'sseqid', 'pident', 'length', 'mismatch', 'gapopen', 'qstart', 'qend', 'sstart', 'send', 'evalue', 'bitscore')
+
+
+
+
+#get the total non-redundant list of genes
+OG_genes = unique(blast_file_in$qseqid)
+
+counter=1   #set counter for OG numbers
+flag = 0    #set our while loop flag
+
+#while there are still multiple groups, split the OGs
+while (flag == 0 ){
+
+  #first thing we'll get a list of ecotypes assuming ecotype/species name is separated from gene name by a |
+ecotypes = gsub("\\|.*","",OG_genes, perl=TRUE)
+#get single copy genes - i.e. ones that are not duplicated in this round
+single_copy = ecotypes[!(duplicated(ecotypes) | duplicated(ecotypes, fromLast=TRUE))]
+single_copy_genes = OG_genes[grepl(paste(single_copy, collapse="|", sep=""), OG_genes, perl=TRUE)]
+#get ecotypes that have more than one gene in this cluster
+multi_copy = unique(ecotypes[duplicated(ecotypes)])
+
+
+
+#str_count(multi_copy, ecotypes)
+
+#nrows_for_groups = max(colSums(as.data.frame(sapply(multi_copy, str_count, pattern=ecotypes))))
+
+
+
+
+#multicopy_groups = matrix(nrow=nrows_for_groups, ncol = length(multi_copy))
+#colnames(multicopy_groups) = multi_copy
+
+multicopy_list = list()
+
+for (ecotype in 1:length(multi_copy)){
+  #for (ecotype in 1:length(ecotypes)){
+  
+  genes_in_ecotype = OG_genes[grepl(paste("^",multi_copy[ecotype], collapse="|", sep=""), OG_genes, perl=TRUE)]
+  
+ #multicopy_groups[1:length(genes_in_ecotype),ecotype] = genes_in_ecotype
+  
+  multicopy_list[[ecotype]] = genes_in_ecotype
+  
+}
+
+#multicopy_groups = as.data.frame(multicopy_groups)
+
+#test_combn = expand_grid(rep(multicopy_list, length(multicopy_list)))
+
+#test_combn = expand(multicopy_groups, nesting(multicopy_groups))
+
+#test_combn = crossing(multicopy_groups[1:nrow(multicopy_groups),1:ncol(multicopy_groups)])
+
+#get combinations of all elements 
+gene_combinations = expand.grid(multicopy_list)
+
+#gene_combinations = paste(gene_combinations, single_copy_genes)
+
+
+
+
+#test_comb = crossing(sapply(multicopy_list,unlist))
+
+
+#if we've reached a point where we're out multicopy genes, don't continue. Otherwise, continue 
+#if (length(multi_copy) < 1) {
+  
+  #flag = 1
+  
+  #nested insdie here also catch cases where the remaining single copy is greater than 2 meaning it's the leftovers. 
+ # if (length(single_copy) >=2){
+ # singlecopy_blast = blast_file_in %>% filter(grepl(paste("^",single_copy, collapse="|", sep=""), qseqid, perl=TRUE))
+  
+ # write.table(unique(singlecopy_blast$qseqid), paste(outfolder, OG_name, "_", counter, ".txt", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+  #}
+  
+  
+#} else {
+
+  #now so the actual stuff
+  
+  # get the blast all by all info for the single copy genes in thsi cluseter
+#singlecopy_blast = blast_file_in %>% filter(grepl(paste("^",single_copy, collapse="|", sep=""), qseqid, perl=TRUE))
+  
+  
+average_matrix = matrix(nrow=nrow(combination_blast), ncol=1)
+for (l in 1:nrow(combination_blast)){
+loop_gene_combination = unname(c(sapply(gene_combinations[l,], as.character), single_copy_genes))
+combination_blast = blast_file_in %>% filter(grepl(paste(loop_gene_combination, collapse="|"), qseqid, perl=TRUE) & grepl(paste(loop_gene_combination, collapse="|"), sseqid, perl=TRUE))
+
+average_matrix[l,1] = mean(combination_blast$pident)
+
+}
+
+
+
+
+#get the duplicated genes from this cluster all by all blast info
+#multicopy_blast = blast_file_in %>% filter(grepl(paste("^", multi_copy, collapse="|", sep=""), qseqid, perl=TRUE) & (sseqid %in% singlecopy_blast$qseqid))
+
+#get the duplicated genes
+duplicated_genes = unique(multicopy_blast$qseqid)
+
+#we're gonna try two ways to do this. First is to find which of the pairs is, on average, more similar to the single copies. 
+
+#the second is we're going to create x groups and figure out which one, on average, has the highest similarity across them. 
+
+genes_to_add = vector(mode = "character")    #set holding vector
+
+#for each ecotype in the multicopy, figure out which one has the highest average similarity to the single copy genes
+for (i in 1:length(multi_copy)){
+  
+    #print("line 187") 
+  #find which duplicates to compare
+  duplicates_to_compare = duplicated_genes[grepl(multi_copy[i],duplicated_genes)]
+  
+  #set the average score holding matrix and fill it with the duplicates to compare number
+  average_score = matrix(nrow=length(duplicates_to_compare), ncol=2)
+  average_score[,1] = duplicates_to_compare
+  
+  #for each row, calculate the average percent identify and put that in the average score
+  for (j in 1:nrow(average_score)){
+    
+    single_gene_temp_blast = multicopy_blast %>% filter(qseqid == duplicates_to_compare[j])
+    
+    average_score[j,2] = mean(single_gene_temp_blast$pident)
+    
+    
+    
+  }
+  #add the highest percent identity gene to a list of genes to add to our cluster for output
+  genes_to_add = c(genes_to_add, average_score[order(average_score[,2], decreasing=TRUE),1][1])
+  
+}
+  #add genes to add to our single copy genes and then sort it A-Z
+  holding_data_frame = data.frame(c(unique(singlecopy_blast$qseqid), genes_to_add))
+  holding_data_frame[,1] = holding_data_frame[order(holding_data_frame[,1]),]
+  
+  #write output
+  write.table(holding_data_frame, paste(outfolder, OG_name, "_", counter, ".txt", sep=""), col.names=FALSE, row.names=FALSE, quote=FALSE, sep="\n")
+  
+  #find difference between the cluster we just output and the remaining duplicates
+  OG_genes = setdiff(duplicated_genes, holding_data_frame[,1])
+  
+  blast_file_in = blast_file_in %>% filter(qseqid %in% OG_genes)
+  
+  if (length(OG_genes) <=1){
+    flag = 1
+    
+  
+  }
+  
+  counter = counter + 1
+
+  }
+}
+
+
+} #function end
+
+```
+
+#run functions
+```{r}
+
+#Blast folder where the blast outputs are
+blastfolder = "D:/Analysis_Output/Blast/146_Ecotypes/HOG_Refinement/"
+blast_files = list.files(blastfolder, pattern="*.blast$")
+
+
+for (bfile in blast_files){
+  
+  OGname = gsub("\\.blast","",bfile)
+  print(OGname)
+  #outputfolder = paste("D:/Analysis_Output/Orthogroup_Assignment/Sep2024/NLRs/Dec_results/Orthofinder_out/OG_Separation/Blast_Split/", OGname, sep="")
+  outputfolder = paste("D:/Analysis_Output/Orthogroup_Assignment/Sep2024/Kinases/Orthofinder_out/Results_Dec9/Refinement/Split/", gsub("_.*","",OGname), sep="")
+  
+  SplitOGs(paste(blastfolder, bfile, sep=""), OGname, outputfolder)
+  
+} 
+
+
+
+
+
+
+```
+
+
+
+
+
+
