@@ -22,4 +22,4 @@ genome_size=${2}
 outdir=${3}
 
 #run flye under raw mode, meaning flye will do some polishing steps 
-python ~/Flye-2.9.2/bin/flye --pacbio-raw $input_reads  --threads 32 --iterations 3 -o $outdir --genome-size $genome_size
+python ~/Flye-2.9.2/bin/flye --nanopore-raw $input_reads  --threads 32 --iterations 3 -o $outdir --genome-size $genome_size
